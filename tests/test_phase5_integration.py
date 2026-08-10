@@ -23,7 +23,7 @@ import pytest
 import pytest_asyncio
 from fastmcp.exceptions import ToolError
 
-import vangard_daz_mcp.server as server_module
+from vangard_daz_mcp._client import DAZ_API_TOKEN, set_http_client
 from vangard_daz_mcp.server import (
     # Core
     _register_scripts,
@@ -32,6 +32,7 @@ from vangard_daz_mcp.server import (
     daz_list_materials,
     daz_get_material,
     daz_set_material_property,
+    daz_convert_to_iray_uber,
     daz_set_morph,
     daz_delete_node,
     daz_list_lights,
@@ -80,8 +81,12 @@ async def live_client():
     if not _daz_available():
         pytest.skip(f"DAZ Studio not reachable at {BASE_URL}")
 
-    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as client:
-        server_module._http_client = client
+    # Mirrors _mcp.py's _lifespan(): DazScriptServer 401s every request once a
+    # token file/env var is configured, and this fixture used to connect with
+    # no auth header at all.
+    headers = {"X-API-Token": DAZ_API_TOKEN} if DAZ_API_TOKEN else {}
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0, headers=headers) as client:
+        set_http_client(client)
 
         # Register scripts once per process (cached flag).
         if not _cache.get("scripts_registered"):
@@ -90,7 +95,7 @@ async def live_client():
 
         yield client
 
-    server_module._http_client = None
+    set_http_client(None)
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +303,45 @@ class TestSetMaterialProperty:
     async def test_material_not_found_raises(self, live_client, figure_label):
         with pytest.raises(ToolError, match="Material not found"):
             await daz_set_material_property(figure_label, "__ghost_mat__", "Glossy Roughness", 0.5)
+
+
+class TestConvertToIrayUber:
+    """daz_convert_to_iray_uber - fixes content that lands as DzDefaultMaterial.
+
+    Applying the stock preset is idempotent (confirmed live): running it again
+    on an already-Iray-Uber figure just re-flips zones that are already the
+    target class, so these tests don't need to force the figure into a
+    DzDefaultMaterial state first - they only assert the post-condition.
+    """
+
+    async def test_zones_are_iray_uber_after(self, live_client, figure_label):
+        result = await daz_convert_to_iray_uber(figure_label)
+        assert result["success"] is True
+        assert result["node"] == figure_label
+        assert len(result["after"]) > 0
+        assert all(z["shader"] == "DzUberIrayMaterial" for z in result["after"])
+
+    async def test_before_and_after_have_matching_zone_labels(self, live_client, figure_label):
+        result = await daz_convert_to_iray_uber(figure_label)
+        before_labels = {z["label"] for z in result["before"]}
+        after_labels = {z["label"] for z in result["after"]}
+        assert before_labels == after_labels
+
+    async def test_defaults_to_stock_preset_when_omitted(self, live_client, figure_label):
+        result = await daz_convert_to_iray_uber(figure_label)
+        assert result["preset"]  # resolved to a real path via DzContentMgr.getAbsolutePath
+        assert result["preset"].lower().endswith(".duf")
+
+    async def test_explicit_preset_path(self, live_client, figure_label):
+        # Re-resolve the stock path via one call, then pass it explicitly on a second.
+        auto = await daz_convert_to_iray_uber(figure_label)
+        result = await daz_convert_to_iray_uber(figure_label, auto["preset"])
+        assert result["preset"] == auto["preset"]
+        assert all(z["shader"] == "DzUberIrayMaterial" for z in result["after"])
+
+    async def test_node_not_found_raises(self, live_client):
+        with pytest.raises(ToolError, match="Node not found"):
+            await daz_convert_to_iray_uber("__ghost_node__")
 
 
 # ===========================================================================

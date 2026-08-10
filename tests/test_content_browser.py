@@ -11,11 +11,12 @@ import pytest_asyncio
 import respx
 import httpx
 
-import vangard_daz_mcp.server as server_module
 from vangard_daz_mcp.server import (
     CONTENT_BROWSER_URL,
     daz_search_content,
     daz_load_product,
+    set_http_client,
+    set_content_browser_client,
 )
 
 
@@ -34,11 +35,11 @@ async def clients():
         httpx.AsyncClient(base_url=DAZ_BASE) as daz_client,
         httpx.AsyncClient(base_url=CB_BASE) as cb_client,
     ):
-        server_module._http_client = daz_client
-        server_module._content_browser_client = cb_client
+        set_http_client(daz_client)
+        set_content_browser_client(cb_client)
         yield
-    server_module._http_client = None
-    server_module._content_browser_client = None
+    set_http_client(None)
+    set_content_browser_client(None)
 
 
 @pytest.fixture
