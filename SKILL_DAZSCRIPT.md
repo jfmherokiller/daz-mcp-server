@@ -178,3 +178,122 @@ for (var k in SomeObject) {
 }
 return { methods: methods };
 ```
+
+### Building custom dialogs (confirmed real widget API)
+Extracted from a real commercial script product's shared UI-building code (RiverSoftArt's
+Character Converter G2M→G8M — see SKILL_DSON_FORMAT.md's product-decompile notes). Confirmed
+widget classes and patterns for building a custom tool dialog:
+```javascript
+// Script's own directory / a bundled resource file next to the script:
+var scriptDir = new DzDir(new DzFileInfo(getScriptFileName()).path());
+var pngPath = scriptDir.filePath(new DzFileInfo(getScriptFileName()).completeBaseName() + ".png");
+var img = new Pixmap(pngPath);
+// OR, for a resource shipped under this product's own data/ folder (content-root-relative):
+var img2 = new Pixmap(IncludeFile("data/<Vendor>/<Common>/SomeImage.png"));
+
+var dlg = new DzDialog();               // (constructed elsewhere; shown here as the parent)
+var group = new DzVGroupBox(dlg);        // titled vertical group box
+group.columns = 2;
+group.title = "Body Parts:";
+dlg.addWidget(group);
+
+var label = new DzLabel(group);          // static label/image
+label.pixmap = img;
+label.setFixedSize(400, 475);
+
+var grid = new DzGridLayout(label);      // grid layout inside a widget
+var cb = new DzCheckBox(dlg);            // checkbox
+cb.text = "Eyes";
+cb.checked = settings.getBoolValue("Eyes", false);   // settings = App.getAppSettingsMgr() page
+cb.toolTip = "Apply/Do not Apply to Eyes and its bone children";
+grid.addWidget(cb, /*row*/ 0, /*col*/ 2, /*span*/ 1);
+
+var text = new DzTextEdit(group);        // read-only rich-text explanation panel
+text.readonly = true;
+```
+Confirmed classes: `DzDialog`, `DzVGroupBox` (and presumably `DzHGroupBox`), `DzLabel`,
+`DzCheckBox`, `DzTextEdit`, `DzGridLayout`, `Pixmap`, `DzDir`, `DzFileInfo`. `IncludeFile(path)` is
+a confirmed real global function for loading a resource bundled under the script's own content
+path (content-root-relative, not filesystem-absolute) — the correct way to ship auxiliary images/
+data alongside a distributed script rather than hardcoding a local dev-machine path.
+
+### dForce simulation control — confirmed API (cross-checked against this server's own code)
+Extracted from a real, well-engineered community script ("ZGFX dForce Manager", a manually-
+installed `Scripts/<Vendor>/<name>.dsa` — no DIM wrapper at all, just drop the folder into a mapped
+content directory; see SKILL_DSON_FORMAT.md for that distribution mode). Confirms and extends what
+`_registry.py`'s `_RUN_DFORCE_SIMULATION_SCRIPT`/`_SET_DFORCE_PROPERTY_SCRIPT` already do:
+
+```javascript
+// Confirmed: same manager class this server's own dForce tools already use.
+var simMgr = App.getSimulationMgr();
+
+// Freeze Simulation lives on the dForce MODIFIER, not the node:
+var obj = node.getObject();
+for (var m = 0; m < obj.getNumModifiers(); m += 1) {
+    var mod = obj.getModifier(m);
+    if (mod.inherits("DzDForceModifier")) {           // exact class name, confirmed
+        var freezeProp = mod.findPropertyByLabel("Freeze Simulation");
+        break;
+    }
+}
+// Visible in Simulation lives directly on the NODE, not any modifier:
+var visibleProp = node.findPropertyByLabel("Visible in Simulation");
+
+// Smoothing modifier — same class SKILL_DSON_FORMAT.md's wardrobe .dsf analysis found:
+// mod.inherits("DzMeshSmoothModifier")
+
+// findPropertyByLabel searches by UI LABEL string (not the internal id findProperty uses) —
+// useful when you only know what's shown in the Parameters pane, not the internal channel id.
+
+// Flat property enumeration by index (alternative to the `for...in` probing pattern already
+// documented above):
+var n = holder.getNumProperties();
+for (var p = 0; p < n; p += 1) {
+    var prop = holder.getProperty(p);
+    var label = prop.getLabel();
+}
+// Property-GROUP tree search (properties organized like the Parameters pane's group hierarchy):
+var groups = holder.getPropertyGroups();
+var found = groups.findProperty("Some Label", true, true);  // exact bool-arg semantics unconfirmed
+```
+
+**This server's own `_SET_DFORCE_PROPERTY_SCRIPT` currently finds the dForce modifier via
+fuzzy substring matching** (`className.toLowerCase().indexOf("dforce") !== -1`) rather than
+`mod.inherits("DzDForceModifier")`. The exact-class-name check confirmed above is more precise and
+is a plausible robustness improvement worth trying — not applied here since it wasn't tested live,
+just flagged as a real opportunity found via cross-referencing independent third-party code against
+this server's own implementation.
+
+**Defensive coding pattern worth adopting for anything version-sensitive**: this script wraps
+essentially every API call in `try { } catch(e) { return null/false; }` and checks
+`typeof(obj.method) == "function"` before calling optional/uncertain methods, plus probes multiple
+possible label strings (`["Start Bones from Memorized Pose", ...]` variants) for a setting whose
+exact wording it couldn't fully pin down across Daz Studio versions. This is the idiomatic way
+experienced third-party script authors hedge against API differences across Daz Studio versions —
+worth mirroring in any DazScript this project generates that needs to survive version drift.
+
+### Settings persistence & modifier-key detection
+Confirmed real API, extracted from an official Daz-authored script bundled in a real shipped
+product (a Materials Preset `.ds` tool from the Michael 4 product line — see
+SKILL_DSON_FORMAT.md's "legacy multi-part product strategy" section):
+```javascript
+// Persist a script's own settings across sessions (per-path key/value store):
+var mgr = App.getAppSettingsMgr();
+mgr.pushPath("MyScript/Settings");
+mgr.setStringValue("someKey", "someValue");   // also setBoolValue / setFloatValue
+var v = mgr.getStringValue("someKey", "defaultIfMissing");
+mgr.popPath();
+
+// Modifier-key state at script invocation (e.g. for alternate click behavior):
+shiftPressed();   // bool, global function — no App./MainWindow. prefix needed
+ctrlPressed();    // bool, same
+
+// Script's own filename (for self-referential logic, e.g. finding a same-named companion asset):
+var file = new DzFile(getScriptFileName());
+file.baseName();     // filename without extension
+file.extension();    // extension without the dot
+
+// Per-user app data directory (confirmed real, used by a commercial script to cache generated
+// files outside the content library): App.getAppDataPath()
+var cacheDir = "%1/MyScriptCache".arg(App.getAppDataPath());
+```
