@@ -11,6 +11,9 @@
 - **@SKILL_SCENE.md**: Scene layout, hierarchy, batch operations, and content browsing.
 - **@SKILL_ACTORS.md**: Morphs, emotions, posing, interaction, and character movement.
 - **@SKILL_CINEMA.md**: Cameras, lighting, animation, shot composition, and rendering.
+- **@SKILL_RIGGING.md**: Conforming/attaching non-native geometry via Transfer Utility
+  (`convertPropToFigure` + `DzTransferUtility`, replaces hand-authored `conform_target`), and
+  Joint Controlled Morphs via the ERC system (`DzERCFreeze`/`DzERCLink`/`DzSceneHelper`).
 
 ## Architecture Summary
 - **Version:** 0.4.0
