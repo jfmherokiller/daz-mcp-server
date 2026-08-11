@@ -2258,18 +2258,27 @@ _SET_RENDER_QUALITY_SCRIPT = """\
     var renderMgr = App.getRenderMgr();
     if (!renderMgr) throw "No render manager available";
 
-    // getOptionHelper() returns a DzElement (renderer's option node) which has findProperty
+    // Confirmed live against Daz Studio 6.25.2026: "Max Samples" / "Rendering Quality" are NOT
+    // exposed on renderMgr.getOptionHelper() (that holder only carries general output/dimension
+    // settings — Render Type, Image Path, etc., 16 properties total). They live on the active
+    // Iray renderer's own property holder instead. Confirmed exact label is "Rendering Quality",
+    // not "Render Quality".
+    var iray = renderMgr.findRenderer ? renderMgr.findRenderer("DzIrayRenderer") : null;
+    var holder = iray && typeof iray.getPropertyHolder === 'function' ? iray.getPropertyHolder() : null;
+    // Fall back to the option helper (and then legacy render options) in case a future Daz Studio
+    // version moves these properties, or Iray isn't the active renderer.
     var optHelper = renderMgr.getOptionHelper ? renderMgr.getOptionHelper() : null;
 
-    var targets = ["Max Samples", "Render Quality"];
-    var targetValues = {"Max Samples": args.maxSamples, "Render Quality": args.renderQuality};
+    var targets = ["Max Samples", "Rendering Quality"];
+    var targetValues = {"Max Samples": args.maxSamples, "Rendering Quality": args.renderQuality};
 
     var propertiesSet = [];
     var notFound = [];
 
     for (var i = 0; i < targets.length; i++) {
         var name = targets[i];
-        var prop = optHelper ? optHelper.findProperty(name) : null;
+        var prop = holder ? holder.findProperty(name) : null;
+        if (!prop && optHelper) prop = optHelper.findProperty(name);
         if (prop) {
             prop.setValue(targetValues[name]);
             propertiesSet.push({property: name, value: prop.getValue()});
@@ -2285,6 +2294,139 @@ _SET_RENDER_QUALITY_SCRIPT = """\
     return result;
 })()
 """
+
+# ---------------------------------------------------------------------------
+# Iray render options — generic property access (Phase 6.7 follow-up)
+#
+# Reaches the actual Iray render-settings property surface, confirmed live
+# 2026-08-11 against Daz Studio 6.25.2026: NOT App.getRenderMgr().getRenderOptions()
+# (DzRenderOptions — legacy scanline/RenderMan fields only, no Iray settings at all),
+# but three DzElement-based property holders instead:
+#   - App.getRenderMgr().findRenderer("DzIrayRenderer").getPropertyHolder()
+#       -> 26 top-level Iray properties (Render Mode, Min/Max Samples, Post Denoiser*, ...)
+#       -> .getElementChild(0) = 26 "Photoreal" properties (Firefly Filter, Bloom Filter, ...)
+#       -> .getElementChild(1) = 23 "Interactive" properties (Max Ray Bounces, Shadows, ...)
+#   - App.getRenderMgr().getOptionHelper()
+#       -> 16 general properties (Render Type, Image Path, Render Style, ...)
+# 91 properties total across the four groups, confirmed by live enumeration.
+# ---------------------------------------------------------------------------
+
+_FIND_RENDER_OPTION_PROP_HELPER = """\
+    function findRenderOptionProp(name) {
+        var renderMgr = App.getRenderMgr();
+        if (!renderMgr) return null;
+        var iray = renderMgr.findRenderer ? renderMgr.findRenderer("DzIrayRenderer") : null;
+        var holder = iray && typeof iray.getPropertyHolder === 'function' ? iray.getPropertyHolder() : null;
+        if (holder) {
+            var p = holder.findProperty(name);
+            if (p) return {prop: p, group: "iray"};
+            if (typeof holder.getNumElementChildren === 'function') {
+                var groupNames = ["iray_photoreal", "iray_interactive"];
+                for (var c = 0; c < holder.getNumElementChildren(); c++) {
+                    var child = holder.getElementChild(c);
+                    var cp = child.findProperty(name);
+                    if (cp) return {prop: cp, group: groupNames[c] || ("iray_child_" + c)};
+                }
+            }
+        }
+        var optHelper = renderMgr.getOptionHelper ? renderMgr.getOptionHelper() : null;
+        if (optHelper) {
+            var op = optHelper.findProperty(name);
+            if (op) return {prop: op, group: "general"};
+        }
+        return null;
+    }
+"""
+
+_LIST_RENDER_OPTIONS_SCRIPT = ("""\
+(function(){
+""" + _FIND_RENDER_OPTION_PROP_HELPER + """
+    function describeGroup(holder, groupName, out) {
+        var n = holder.getNumProperties();
+        for (var i = 0; i < n; i++) {
+            var p = holder.getProperty(i);
+            out.push({name: p.getLabel(), type: p.className(), group: groupName});
+        }
+    }
+
+    var renderMgr = App.getRenderMgr();
+    if (!renderMgr) throw new Error("No render manager available");
+    var iray = renderMgr.findRenderer ? renderMgr.findRenderer("DzIrayRenderer") : null;
+    var holder = iray && typeof iray.getPropertyHolder === 'function' ? iray.getPropertyHolder() : null;
+
+    var all = [];
+    if (holder) {
+        describeGroup(holder, "iray", all);
+        if (typeof holder.getNumElementChildren === 'function') {
+            var groupNames = ["iray_photoreal", "iray_interactive"];
+            for (var c = 0; c < holder.getNumElementChildren(); c++) {
+                describeGroup(holder.getElementChild(c), groupNames[c] || ("iray_child_" + c), all);
+            }
+        }
+    }
+    var optHelper = renderMgr.getOptionHelper ? renderMgr.getOptionHelper() : null;
+    if (optHelper) describeGroup(optHelper, "general", all);
+
+    return {count: all.length, properties: all};
+})()
+""")
+
+_GET_RENDER_OPTION_SCRIPT = ("""\
+(function(){
+    var args = getArguments()[0] || {};
+    var propertyName = args.propertyName;
+""" + _FIND_RENDER_OPTION_PROP_HELPER + """
+    var found = findRenderOptionProp(propertyName);
+    if (!found) {
+        throw new Error("Render option property not found: '" + propertyName + "'. Use daz_list_render_options to see valid names.");
+    }
+    return {
+        property: propertyName,
+        group: found.group,
+        type: found.prop.className(),
+        value: found.prop.getValue()
+    };
+})()
+""")
+
+# Property classes whose getValue()/setValue() don't round-trip a simple scalar (colors return a
+# packed/unusable number via getValue(); Int2/Float2 are compound values). Confirmed live
+# 2026-08-11: DzFloatColorProperty.getValue() returns a meaningless packed int, NOT a usable color —
+# needs setFloatColorValue()/getFloatColorValue() instead, which this generic tool doesn't attempt.
+_UNSUPPORTED_RENDER_OPTION_SET_TYPES = (
+    "DzFloatColorProperty", "DzColorProperty", "DzInt2Property", "DzFloat2Property",
+)
+
+_SET_RENDER_OPTION_SCRIPT = ("""\
+(function(){
+    var args = getArguments()[0] || {};
+    var propertyName = args.propertyName;
+    var value = args.value;
+""" + _FIND_RENDER_OPTION_PROP_HELPER + """
+    var found = findRenderOptionProp(propertyName);
+    if (!found) {
+        throw new Error("Render option property not found: '" + propertyName + "'. Use daz_list_render_options to see valid names.");
+    }
+    var prop = found.prop;
+    var propType = prop.className();
+    var unsupported = """ + repr(list(_UNSUPPORTED_RENDER_OPTION_SET_TYPES)) + """;
+    for (var u = 0; u < unsupported.length; u++) {
+        if (propType === unsupported[u]) {
+            throw new Error("'" + propertyName + "' is a " + propType + " — not settable via this generic tool (colors/compound values need a dedicated setter). Found in group: " + found.group);
+        }
+    }
+
+    var oldValue = prop.getValue();
+    prop.setValue(value);
+    return {
+        property: propertyName,
+        group: found.group,
+        type: propType,
+        old_value: oldValue,
+        new_value: prop.getValue()
+    };
+})()
+""")
 
 # ---------------------------------------------------------------------------
 # Phase 2 script constants
@@ -6675,8 +6817,30 @@ _SET_DFORCE_PROPERTY_SCRIPT = """\
 
     var modifier = null;
 
-    // Search node-level modifiers first
-    if (typeof node.getNumModifiers === 'function') {
+    // Preferred: exact lookup via the dForce engine instance. Confirmed live against Daz Studio
+    // 6.25.2026 that DzDForceEngine's "static" SDK methods only work when called on an actual
+    // engine instance (App.getSimulationMgr().findSimulationEngine("DzDForceEngine")), not on the
+    // bare DzDForceEngine class — calling them on the class throws "is not a function".
+    try {
+        var simMgr = App.getSimulationMgr();
+        var engine = simMgr ? simMgr.findSimulationEngine("DzDForceEngine") : null;
+        if (engine) {
+            if (typeof engine.findDForceModifierOnNode === 'function') {
+                modifier = engine.findDForceModifierOnNode(node);
+            }
+            if (!modifier && typeof engine.findDForceModifierOnObject === 'function' && typeof node.getObject === 'function') {
+                var eObj = node.getObject();
+                if (eObj) modifier = engine.findDForceModifierOnObject(eObj);
+            }
+        }
+    } catch (eEngine) {
+        // Engine lookup unavailable on this Daz Studio version — fall through to the fuzzy
+        // class-name search below rather than failing outright.
+    }
+
+    // Fallback: fuzzy class-name search over node-level modifiers (older/unknown Daz Studio
+    // versions where the exact engine-instance lookup above isn't available).
+    if (!modifier && typeof node.getNumModifiers === 'function') {
         for (var i = 0; i < node.getNumModifiers(); i++) {
             var mod = node.getModifier(i);
             if (mod) {
@@ -7515,6 +7679,19 @@ _REGISTRY: dict[str, tuple[str, str]] = {
         "Set Iray render quality preset (draft/preview/good/final) via Max Samples and "
         "Render Quality properties",
         _SET_RENDER_QUALITY_SCRIPT,
+    ),
+    # Phase 6.7 follow-up: generic Iray render option access
+    "vangard-list-render-options": (
+        "List every discoverable Iray/general render-option property name, type, and group",
+        _LIST_RENDER_OPTIONS_SCRIPT,
+    ),
+    "vangard-get-render-option": (
+        "Get a named Iray or general render-option property's current value",
+        _GET_RENDER_OPTION_SCRIPT,
+    ),
+    "vangard-set-render-option": (
+        "Set a named Iray or general render-option property's value",
+        _SET_RENDER_OPTION_SCRIPT,
     ),
     # Phase 2: Emotional direction
     "vangard-set-emotion": (

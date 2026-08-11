@@ -24,3 +24,10 @@ Tools for visual storytelling and rendering.
 - `daz_batch_render_cameras`: Multi-angle product/portrait renders.
 - `daz_setup_shot_coverage`: Standard 3-camera dialogue setups.
 - `daz_create_camera_rig`: Multi-camera bullet-time/orbit rigs.
+- `daz_set_render_quality`: Quick draft/preview/good/final presets (Max Samples + Rendering Quality).
+- `daz_list_render_options` / `daz_get_render_option` / `daz_set_render_option`: Generic access to
+  the real Iray render-settings surface (~91 properties — sample counts, denoiser, ray bounces,
+  firefly/bloom filters, occlusion mode, etc.) that `daz_get_render_settings`/`daz_set_render_quality`
+  don't cover. Confirmed live: these properties are **not** on the legacy render options object —
+  see `SKILL_SDK_REFERENCE.md`'s "Iray render settings" section for where they actually live.
+  Color-typed properties (`White Mode Color`, etc.) aren't settable through the generic setter.

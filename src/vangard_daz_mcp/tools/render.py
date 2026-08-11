@@ -687,6 +687,115 @@ async def daz_set_render_quality(preset: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Generic Iray render option access
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def daz_list_render_options() -> dict[str, Any]:
+    """List every discoverable Iray/general render-option property.
+
+    Iray's real render settings (Max Samples, Post Denoiser Enable, Max Ray
+    Bounces, etc.) do not live on the legacy render options object — they're
+    spread across the active Iray renderer's property holder (plus its
+    Photoreal/Interactive sub-groups) and a separate general options holder.
+    This tool enumerates all of them in one call so you know what's available
+    before calling daz_get_render_option / daz_set_render_option.
+
+    Returns:
+      - count: total number of properties found
+      - properties: list of {name, type, group} objects. `group` is one of
+        "iray" (top-level Iray quality/sampling settings), "iray_photoreal"
+        (Photoreal-mode-specific settings), "iray_interactive"
+        (Interactive-mode-specific settings), or "general" (render type,
+        output path, dimensions, render style — non-Iray-specific).
+        `type` is the DazScript property class (e.g. "DzBoolProperty",
+        "DzIntProperty", "DzFloatProperty", "DzEnumProperty",
+        "DzFloatColorProperty" — color-typed properties are listed but not
+        settable via daz_set_render_option, see its docstring).
+
+    Example:
+        options = daz_list_render_options()
+        for opt in options["properties"]:
+            if opt["group"] == "iray":
+                print(opt["name"], opt["type"])
+    """
+    return await _execute_by_id("vangard-list-render-options", {})
+
+
+@mcp.tool()
+async def daz_get_render_option(property_name: str) -> dict[str, Any]:
+    """Get the current value of a named Iray or general render-option property.
+
+    Searches the active Iray renderer's property holder (including its
+    Photoreal/Interactive sub-groups) and the general render options holder,
+    in that order. Use daz_list_render_options to see valid property names.
+
+    Args:
+        property_name: Exact property label, e.g. "Max Samples",
+                        "Post Denoiser Enable", "Max Ray Bounces", "Render Style".
+
+    Returns:
+      - property: the property name requested
+      - group: which holder it was found on ("iray", "iray_photoreal",
+        "iray_interactive", or "general")
+      - type: the DazScript property class
+      - value: current value (raw getValue() — for DzFloatColorProperty this
+        is not a usable color, see daz_set_render_option's note)
+
+    Example:
+        current = daz_get_render_option("Max Samples")
+        print(f"Currently {current['value']} samples")
+    """
+    return await _execute_by_id("vangard-get-render-option", {"propertyName": property_name})
+
+
+@mcp.tool()
+async def daz_set_render_option(
+    property_name: str,
+    value: float | bool | str,
+) -> dict[str, Any]:
+    """Set a named Iray or general render-option property to a new value.
+
+    Covers the real Iray render-settings surface that daz_set_render_quality's
+    two hardcoded properties don't — sample counts, denoiser, ray bounces,
+    firefly/bloom filters, occlusion mode, and everything else returned by
+    daz_list_render_options. Searches the same holders as
+    daz_get_render_option and sets the first match.
+
+    Args:
+        property_name: Exact property label, e.g. "Max Samples",
+                        "Post Denoiser Enable", "Max Ray Bounces".
+        value: New value. Bool properties accept true/false, numeric
+               properties accept int/float, enum properties accept the
+               integer index of the desired option, string properties
+               accept a string.
+
+    Returns:
+      - property, group, type: same as daz_get_render_option
+      - old_value, new_value: value before and after the change
+
+    Raises:
+        ToolError: if the property name isn't found (use
+                   daz_list_render_options first), or if it's a
+                   DzFloatColorProperty/DzColorProperty/DzInt2Property/
+                   DzFloat2Property — compound/color values aren't settable
+                   through this generic tool.
+
+    Example:
+        # Cheap draft-quality iteration
+        daz_set_render_option("Max Samples", 100)
+        daz_set_render_option("Post Denoiser Enable", True)
+
+        # Tune Interactive-mode ray bounces
+        daz_set_render_option("Max Ray Bounces", 8)
+    """
+    return await _execute_by_id(
+        "vangard-set-render-option",
+        {"propertyName": property_name, "value": value},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Poll helper (not an MCP tool — for use in Python scripts)
 # ---------------------------------------------------------------------------
 
