@@ -73,6 +73,12 @@ async def daz_load_file(
       - warning: present if replace_mode="add" was requested but
                  DzContentReplaceMgr wasn't reachable on this Daz Studio
                  version — the load still proceeded without that protection
+
+    Notes:
+        - Live-verified: merging a scene copy with replace_mode="add" into a
+          scene with existing cameras/lights left all of them intact (counts
+          doubled from the merge rather than staying flat), and the prior
+          replace mode was correctly restored afterward.
     """
     if merge and replace_mode is None:
         try:

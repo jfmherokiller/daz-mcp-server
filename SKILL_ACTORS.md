@@ -9,8 +9,11 @@ Tools for morphs, emotions, and movement.
   nodes via `DzMorphDeltas.calculateDeltas()` — a scriptable alternative to the fully-manual
   "export, sculpt externally, Morph Loader Pro" JCM workflow in SKILL_PACKAGING.md. Both nodes
   must already be loaded in the scene (no direct external-mesh-file loading). Returns raw delta
-  data only — turning it into an installable morph property is still a manual step. Not yet
-  live-verified.
+  data only — turning it into an installable morph property is still a manual step. Live-verified
+  against a real Genesis 9 figure (one delta per vertex, correct offsets) — see
+  SKILL_SDK_REFERENCE.md for the two SDK-doc corrections this needed (instance method, not
+  static; read the return value, not the calling instance). Comparing a node to itself by the
+  same label raises an error rather than returning zero deltas — use two distinct nodes.
 
 ## Emotional Direction
 - `daz_set_emotion`: Apply `happy`, `angry`, `confident`, etc., with `intensity`.

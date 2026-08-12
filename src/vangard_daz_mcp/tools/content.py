@@ -154,7 +154,10 @@ async def daz_set_content_metadata(
     Returns:
         Dict with success, the echoed metadata fields, and `method`
         ("static" or "instance") indicating which DzAssetMgr call path
-        actually worked on the connected Daz Studio version.
+        actually worked on the connected Daz Studio version. Live-verified:
+        the bare static DzAssetMgr.setFileMetadata call genuinely fails
+        ("is not a function") — `method` will read "instance" every time,
+        confirming only App.getAssetMgr().setFileMetadata(...) works.
 
     Warning:
         This mutates the real Content Database on the connected machine —

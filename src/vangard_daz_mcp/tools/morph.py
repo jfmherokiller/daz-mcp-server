@@ -550,7 +550,14 @@ async def daz_generate_morph_from_nodes(
           result into an installable morph property on the source figure
           (Create New Property + ERC Freeze) is still a separate, manual
           Daz Studio step — no confirmed scriptable path exists for that half.
-        - Not yet live-verified against a running Daz Studio instance.
+        - Live-verified against a real Genesis 9 figure (duplicated via
+          node.duplicate(false) with a differing body-shape morph): correctly
+          returned one delta per vertex (25182/25182) with real per-vertex
+          offsets.
+        - Passing the SAME node label for both source and target raises
+          ToolError rather than returning a zero-delta result — Daz Studio's
+          own calculateDeltas() returns no usable result for that literal
+          same-object case (confirmed live). Compare genuinely distinct nodes.
     """
     if tolerance < 0:
         raise ToolError(f"tolerance must be non-negative, got {tolerance}")

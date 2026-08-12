@@ -270,12 +270,14 @@ class TestInteractivePose:
 # ---------------------------------------------------------------------------
 
 class TestGenerateMorphFromNodes:
-    async def test_same_node_yields_no_deltas(self, live_client, figure_label):
-        """Diffing a node's geometry against itself should find zero deltas —
-        a cheap sanity check that doesn't require a second, sculpted mesh."""
-        result = await daz_generate_morph_from_nodes(figure_label, figure_label)
-        assert isinstance(result, dict)
-        assert result.get("deltaCount") == 0
+    async def test_literal_same_node_raises(self, live_client, figure_label):
+        """Live-confirmed 2026-08-11: passing the SAME node label for both source
+        and target resolves to the identical DzObject/DzVertexMesh instance on
+        both sides, and DzMorphDeltas.calculateDeltas() returns null (not a
+        valid zero-delta result) for that degenerate case — the tool surfaces
+        this as a ToolError rather than crashing on the null."""
+        with pytest.raises(ToolError):
+            await daz_generate_morph_from_nodes(figure_label, figure_label)
 
     async def test_source_not_found_raises(self, live_client, figure_label):
         with pytest.raises(ToolError):

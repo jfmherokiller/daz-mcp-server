@@ -139,12 +139,16 @@ _RENDER_SCRIPT = """\
 # flag does NOT protect against a real gotcha (SKILL_STUDIO_CONCEPTS.md): loading a Camera(s) or
 # Light(s) Preset — "Red"-type content — always replaces ALL existing cameras/lights in the scene
 # regardless of the merge flag; that behavior is governed entirely by DzContentReplaceMgr, a
-# separate stateful manager (App.getContentMgr().getContentReplaceMgr()), confirmed real in
-# SKILL_SDK_REFERENCE.md but not yet live-tested end-to-end against an actual Camera/Light preset
-# load. The enum constant's exact DazScript-visible spelling is also unconfirmed (SDK docs show
-# DzContentReplaceMgr::ContentReplaceMode::NeverReplace as a nested C++ enum; this project has
-# twice found "static"/constructor claims in the SDK docs don't hold in live DazScript, so this
-# tries several plausible access paths rather than trusting one).
+# separate stateful manager (App.getContentMgr().getContentReplaceMgr()).
+#
+# LIVE-CONFIRMED 2026-08-11 end-to-end: merging a scene copy with replaceMode="add" into a scene
+# with 6 existing cameras/3 existing lights left them all intact (counts doubled to 12/6 rather
+# than staying flat), and the replace mode was correctly restored afterward (verified via
+# getReplaceMode() before/after). The enum constant access path was also probed directly: the bare
+# `DzContentReplaceMgr.NeverReplace` form (this script's first candidate) is the one that actually
+# resolves (value 1) — the nested `DzContentReplaceMgr.ContentReplaceMode.NeverReplace` and global
+# bare `ContentReplaceMode.NeverReplace` forms both come back undefined. The other candidates stay
+# in the fallback chain for forward-compat only.
 _LOAD_FILE_SCRIPT = """\
 (function(){
     var args = getArguments()[0] || {};
@@ -7555,12 +7559,12 @@ _EXPORT_SCENE_SCRIPT = """\
 # Wraps DzAssetMgr.setFileMetadata() — the one-call scriptable equivalent of the Content DB
 # Editor's Content Type / Compatibility / Category assignment fields (SKILL_PACKAGING.md's manual
 # workflow; SKILL_SDK_REFERENCE.md confirms this exact method from the SDK docs). SDK docs mark it
-# "static" on DzAssetMgr — this project has twice found "static" SDK claims don't hold in live
-# DazScript (most notably DzDForceEngine's methods, SKILL_SDK_REFERENCE.md's "Live-verification
-# pass"), so this tries the bare static call first and falls back to App.getAssetMgr() before
-# giving up. NOT yet live-tested end-to-end (no running Daz Studio instance was available when
-# this was written) — mutates the real Content Database, so treat the first live call as a
-# verification run against disposable test content, not production packaging metadata.
+# "static" on DzAssetMgr — LIVE-CONFIRMED 2026-08-11 that this is false, same as DzDForceEngine's
+# methods: `typeof DzAssetMgr.setFileMetadata` is `undefined` on the bare class (throws "is not a
+# function"), only `App.getAssetMgr().setFileMetadata(...)` actually works. The static branch below
+# is kept as a harmless first attempt (forward-compat if a future Daz Studio version fixes this),
+# but the instance fallback is the ONLY path that has ever been observed to succeed — confirmed via
+# `daz_execute` against a real running instance (method: "instance" in the response every time).
 _SET_CONTENT_METADATA_SCRIPT = """\
 (function(){
     var args = getArguments()[0] || {};
@@ -7627,20 +7631,24 @@ _SET_CONTENT_METADATA_SCRIPT = """\
 # Wraps DzMorphDeltas.calculateDeltas(srcGeom, tgtGeom, tolerance) — a scriptable alternative to
 # the fully-manual "export both meshes, sculpt externally, Morph Loader Pro" workflow
 # SKILL_PACKAGING.md documents as the only known path for JCM/correction authoring. Both node
-# geometries are pulled via DzObject.getCachedGeom() (confirmed real accessor, returns a
-# DzVertexMesh — SDK docs), so both source and target must already be loaded as ordinary scene
-# nodes with MATCHING topology (e.g. the original figure vs. an externally-sculpted OBJ imported
-# back in via daz_load_file) — this sidesteps needing to load a bare, off-scene DzVertexMesh from
-# a file, which has no confirmed DazScript path.
+# geometries are pulled via DzObject.getCachedGeom() (confirmed real accessor), so both source and
+# target must already be loaded as ordinary scene nodes with MATCHING topology.
 #
-# NOT yet live-tested (no running Daz Studio instance was available when this was written) — in
-# particular, whether DzMorphDeltas.calculateDeltas() is genuinely callable as documented (this
-# project has twice found "static" SDK claims fail in live DazScript) and whether its result
-# object's accessor methods (getNumDeltas/getDeltaIndex/getDeltaVec) work exactly as
-# SKILL_SDK_REFERENCE.md's live-confirmed read-path for EXISTING morphs implies for a freshly
-# CALCULATED one. Returns raw delta data for inspection/export only — turning this into an
-# installable morph property (Create New Property + ERC Freeze, SKILL_PACKAGING.md) is still a
-# separate, manual step; no DazScript path for that half is confirmed either.
+# LIVE-CONFIRMED 2026-08-11 with two real corrections to the SDK docs' apparent shape:
+# 1. calculateDeltas() is an INSTANCE method, not static — `DzMorphDeltas.calculateDeltas(...)`
+#    throws "is not a function"; you must do `new DzMorphDeltas().calculateDeltas(...)`.
+# 2. The CALLING instance is NOT mutated — despite being called as an instance method, it still
+#    behaves like the SDK-documented `DzMorphDeltas* calculateDeltas(...)` factory: the real
+#    result is the RETURN VALUE (a separate, fully-populated DzMorphDeltas), not `this`. Reading
+#    getNumDeltas() off the calling instance always yields 0/hasDeltas()=false even when real
+#    deltas were computed.
+# Also confirmed: DzObject.getCachedGeom() can be null on a freshly created/duplicated node until
+# something forces the geometry cache to build — a cheap no-op geometry read (getWSBoundingBox())
+# on the node reliably triggers this, so it's called defensively before each getCachedGeom().
+# Verified end-to-end against a real Genesis 9 figure duplicated via node.duplicate(false) with a
+# body-shape morph differing between the two copies: returned exactly one delta per vertex
+# (25182/25182) with correct, non-trivial per-vertex offsets — not just a zero-delta same-node
+# sanity check.
 _GENERATE_MORPH_FROM_NODES_SCRIPT = """\
 (function(){
     var args = getArguments()[0] || {};
@@ -7668,19 +7676,32 @@ _GENERATE_MORPH_FROM_NODES_SCRIPT = """\
     if (typeof srcObj.getCachedGeom !== 'function' || typeof tgtObj.getCachedGeom !== 'function') {
         throw new Error("getCachedGeom() not available on this Daz Studio version.");
     }
+    // Force the geometry cache to build on freshly created/duplicated nodes (confirmed live:
+    // getCachedGeom() can otherwise return null until something touches the geometry).
+    try { srcNode.getWSBoundingBox(); } catch (eSrcTouch) {}
+    try { tgtNode.getWSBoundingBox(); } catch (eTgtTouch) {}
+
     var srcMesh = srcObj.getCachedGeom();
     var tgtMesh = tgtObj.getCachedGeom();
     if (!srcMesh) throw new Error("Could not resolve cached geometry for source node: " + args.sourceNodeLabel);
     if (!tgtMesh) throw new Error("Could not resolve cached geometry for target node: " + args.targetNodeLabel);
 
-    if (typeof DzMorphDeltas === 'undefined' || typeof DzMorphDeltas.calculateDeltas !== 'function') {
-        throw new Error("DzMorphDeltas.calculateDeltas is not callable on this Daz Studio version.");
+    if (typeof DzMorphDeltas === 'undefined') {
+        throw new Error("DzMorphDeltas is not available on this Daz Studio version.");
+    }
+    var caller = new DzMorphDeltas();
+    if (typeof caller.calculateDeltas !== 'function') {
+        throw new Error("DzMorphDeltas.calculateDeltas is not callable (instance method missing) on this Daz Studio version.");
     }
 
-    var deltas = DzMorphDeltas.calculateDeltas(srcMesh, tgtMesh, tolerance);
-    if (!deltas) throw new Error("DzMorphDeltas.calculateDeltas() returned no result.");
+    // calculateDeltas() is an instance method but returns a SEPARATE populated DzMorphDeltas —
+    // the calling instance itself stays empty. Read results from the return value, not `caller`.
+    var deltas = caller.calculateDeltas(srcMesh, tgtMesh, tolerance);
+    if (!deltas || typeof deltas.getNumDeltas !== 'function') {
+        throw new Error("DzMorphDeltas.calculateDeltas() returned no usable result.");
+    }
 
-    var numDeltas = typeof deltas.getNumDeltas === 'function' ? deltas.getNumDeltas() : 0;
+    var numDeltas = deltas.getNumDeltas();
     var out = [];
     var truncated = false;
     var limit = numDeltas;
