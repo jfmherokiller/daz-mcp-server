@@ -604,6 +604,28 @@ that `daz_convert_to_iray_uber`'s `openFile()`-based shader-preset-application a
    dForce-enabled clothing item loaded; the live dForce test used a bare camera node specifically
    to avoid touching the user's content library, and correctly failed to attach a modifier since
    dForce needs real mesh geometry). Still an open question.
+
+   **Narrowed 2026-08-11, still blocking a `daz_set_dforce_property` surface-level extension**:
+   checked `DzDForceEngine`'s and `DzMaterial`'s full method lists in the SDK docs specifically
+   looking for a `findDForceSettingsProviderOnMaterial()`-style getter (the natural counterpart to
+   `findDForceModifierOnNode()`/`findDForceModifierOnObject()`, which resolved the object-level
+   case in `_SET_DFORCE_PROPERTY_SCRIPT`). **No such getter exists on either class.**
+   `DzDForceEngine` only exposes `addSettingsProviders(node, isSimItem)` / `removeSettingsProviders
+   (node)` (attach/detach for ALL materials on a node at once, no per-material accessor) —
+   confirmed by reading `class_dz_d_force_engine.html`'s full method table directly, not inferred.
+   `DzDForceSettingsProvider` itself is NOT a `DzModifier` — its inheritance chain is
+   `QObject → DzBase/DzRefCountedItem → DzElement → DzSimulationSettingsProvider →
+   DzDForceSettingsProvider` (confirmed from `class_dz_d_force_settings_provider.html`'s
+   inheritance diagram) — so it can't be found the way `DzDForceModifier` is found (node/shape
+   modifier-list enumeration by class name). **Exactly how to retrieve an EXISTING provider after
+   `addSettingsProviders()` has attached one is genuinely unconfirmed** — no getter surfaced on
+   `DzMaterial`, `DzShape`, or `DzDForceEngine` in this pass. Before building a surface-level
+   `daz_set_dforce_property` extension, live-probe this specifically: load real dForce-enabled
+   clothing, call `engine.addSettingsProviders(node, false)`, then enumerate — try `DzElement`'s
+   generic child-walking (`getNumElementChildren()`/`getElementChild(i)`, the mechanism that
+   found `DzIrayPhotorealHelper`/`DzIrayInteractiveHelper` as children of `DzIrayPropertyHolder`
+   earlier in this doc) on the material object, since a "container class for an element used to
+   hold settings" is exactly the shape that pattern already resolved once before.
 5. Whether `setValue()`'s clamping behavior (confirmed live for a manually-`setIsClamped(true)`
    camera property) holds the same way for a property that's clamped *by default* out of the box —
    e.g. an actual Genesis figure bone rotation — rather than one manually configured for the test.
