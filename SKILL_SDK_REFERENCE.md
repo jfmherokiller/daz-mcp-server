@@ -430,6 +430,30 @@ connection to `DzUberIrayMaterial` — the two "generic Iray channel access" can
 was hunting for turned out to be two different, unrelated classes for two different concerns
 (canvas/AOV management vs. material channels), not one unified mechanism.
 
+### `DzFloatColorProperty` inherits `DzColorProperty` — confirms `daz_set_material_property` already handles Iray's ~15 float_color channels correctly
+
+Checked while auditing this server's own `_SET_MATERIAL_PROPERTY_SCRIPT` (`_registry.py`) for a
+suspected gap: it branches purely on `prop.inherits("DzColorProperty")` before calling
+`setColorValue(new QColor(r,g,b))`, and `SKILL_DSON_FORMAT.md`'s 110-channel table lists ~15 Iray
+Uber channels (`Diffuse Overlay Color`, `Glossy Color`, `SSS Color`, `Emission Color`, `Top Coat
+Color`, `Metallic Flakes Color`, etc.) as type `float_color` — a *different* declared type from the
+legacy `color` channels, raising the question of whether those properties are actually
+`DzFloatColorProperty` instances that DON'T inherit `DzColorProperty`, in which case the generic
+setter's `inherits("DzColorProperty")` check would silently fail every Iray Uber color channel.
+
+**Checked directly against the SDK's Doxygen inheritance diagram for `DzFloatColorProperty`
+(`class_dz_float_color_property.html`, not yet live-verified but a static-structure question, not a
+"does this method exist at runtime" question)**: the page's own inheritance section lists methods
+"inherited from `DzColorProperty`" and "inherited from `DzIntProperty`" — confirming
+`DzFloatColorProperty` genuinely extends `DzColorProperty` (chain: `DzProperty → DzNumericProperty →
+DzIntProperty → DzColorProperty → DzFloatColorProperty`). So `prop.inherits("DzColorProperty")` is
+`true` for Iray Uber's float_color channels too, and `setColorValue()` (inherited, 0-255 sRGB int)
+works on them exactly as documented for legacy color channels in `SKILL_DAZSCRIPT.md`'s "Colors —
+linear values need `setFloatColorValue`" section. **No bug found** — `daz_set_material_property`'s
+existing generic color branch already covers Iray Uber's float_color channels correctly; it just
+can't reach `setFloatColorValue()`'s exact-linear round-trip (not needed for a hex-string-input
+tool). Recorded here so this doesn't get re-investigated as a suspected bug in a future session.
+
 ## Render settings — `DzRenderOptions` is a dead end for Iray (important negative result)
 
 `App.getRenderMgr().getRenderOptions()` returns `DzRenderOptions` — **confirmed to expose ONLY
