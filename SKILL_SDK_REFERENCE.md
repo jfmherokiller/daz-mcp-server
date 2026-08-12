@@ -610,15 +610,20 @@ flag — the 3-way replace choice is entirely `DzContentReplaceMgr`'s responsibi
 hand around your own load call, not an extra parameter you can pass into `openFile()`.
 
 **Separate live-confirmed gotcha (found via `daz_load_file` testing, not `DzContentReplaceMgr`
-itself)**: calling `openFile()`/`daz_load_file` with a path that's **already loaded** in the
-current scene — even to intentionally create a second copy — pops a modal "duplicate content"
-dialog that blocks the DazScriptServer's script-execution thread entirely. Every subsequent
+itself)**: calling `openFile()`/`daz_load_file` to load a **Character Preset while a compatible
+figure is currently selected** in the scene pops Daz Studio's modal "Character Load Options"
+dialog ("Load a new Figure into the scene" vs. "Apply this Character to the currently selected
+Figure(s)"), which blocks the DazScriptServer's script-execution thread entirely. Every subsequent
 `/execute` and `/scripts/*/execute` call returns `503` (while `/status` still responds fine — a red
 herring) until a human manually dismisses the dialog. The original triggering call also times out
 client-side (30s) before the dialog even appears, making this easy to misdiagnose as "just a slow
-load." To get a second comparable node instead, use `node.duplicate(false)` (see the "Node
-duplication" section below) — it doesn't go through the content-loader's duplicate-detection path
-at all.
+load." **The trigger is selection state, not the file being a literal duplicate** — confirmed via
+the actual dialog screenshot: loading a *different* compatible figure while one is selected fires
+the same dialog; reloading the same file with nothing/incompatible selected does not. First-load
+suspicion was originally "never reload the same file" — that was the wrong mental model, right
+symptom. Avoid it with `Scene.selectAllNodes(false)` before the load, or sidestep content-loading
+entirely: to get a second comparable node for scripted comparison, use `node.duplicate(false)`
+(see the "Node duplication" section below) — it doesn't touch the content loader at all.
 
 `DzDefaultMaterial` was also re-checked here: confirmed **no** conversion/upgrade method exists on
 it or its `DzMaterial` base (only `getShaderLanguages()`, a generic reflection query) — validates
