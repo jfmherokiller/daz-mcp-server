@@ -30,6 +30,8 @@ from vangard_daz_mcp.tools.scene import (
     daz_get_node_hierarchy,
     daz_get_parent,
     daz_list_children,
+    daz_load_file,
+    daz_save_scene_copy,
     daz_scene_info,
 )
 from vangard_daz_mcp.tools.spatial import (
@@ -371,3 +373,36 @@ class TestValidateScene:
         result = await daz_validate_scene()
         text = str(result).lower()
         assert any(k in text for k in ["valid", "issue", "warning", "error", "ok", "pass"])
+
+
+# ---------------------------------------------------------------------------
+# daz_load_file — replace_mode="add" (DzContentReplaceMgr NeverReplace path)
+#
+# No curated Camera(s)/Light(s) preset fixture exists in this test suite, so
+# this doesn't assert the full "existing lights survive" guarantee — it
+# exercises the real DzContentReplaceMgr lookup/restore code path against a
+# real Daz Studio instance (saved-copy-of-current-scene, merged back in) and
+# checks the tool reports which enum-lookup path actually worked.
+# ---------------------------------------------------------------------------
+
+class TestLoadFileReplaceMode:
+    async def test_add_mode_merges_without_error(self, live_client, tmp_path):
+        scene_copy = str(tmp_path / "replace_mode_test.duf").replace("\\", "/")
+        await daz_save_scene_copy(scene_copy)
+        result = await daz_load_file(scene_copy, merge=True, replace_mode="add")
+        assert isinstance(result, dict)
+        assert result.get("success") is True
+        assert result.get("replaceMode") == "add"
+        # If DzContentReplaceMgr or its enum constant wasn't reachable on this
+        # Daz Studio version, the script still succeeds but reports a warning
+        # instead of silently claiming protection was applied.
+        if "warning" in result:
+            pytest.skip(f"DzContentReplaceMgr unavailable this run: {result['warning']}")
+
+    async def test_default_mode_unaffected(self, live_client, tmp_path):
+        """replace_mode left unset must behave exactly as before this change."""
+        scene_copy = str(tmp_path / "replace_mode_default.duf").replace("\\", "/")
+        await daz_save_scene_copy(scene_copy)
+        result = await daz_load_file(scene_copy, merge=True)
+        assert isinstance(result, dict)
+        assert result.get("success") is True

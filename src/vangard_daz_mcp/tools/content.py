@@ -122,6 +122,57 @@ async def daz_get_content_info(file_path: str) -> dict[str, Any]:
     return result
 
 
+@mcp.tool()
+async def daz_set_content_metadata(
+    file_path: str,
+    content_type: str,
+    compatible_with: str,
+    category: str,
+    compatibility_base: str | None = None,
+) -> dict[str, Any]:
+    """Assign Content DB Editor metadata (Content Type, Compatibility, Category) to a file.
+
+    This is the scriptable equivalent of the manual Content DB Editor workflow
+    (SKILL_PACKAGING.md) — it wires DzAssetMgr.setFileMetadata() directly
+    rather than requiring the Content Library pane's Content DB Editor UI.
+
+    Args:
+        file_path: Content-root-relative or absolute path to the asset file
+                   being tagged (e.g. a .duf shader/pose/material preset).
+        content_type: Taxonomy value, e.g. "Preset/Shader/MDL",
+                       "Follower/Wardrobe/Shirt", "Actor/Character".
+                       See SKILL_DSON_FORMAT.md's real-world taxonomy table.
+        compatible_with: Compatibility Base path this asset works WITH, e.g.
+                          "/Genesis 9/Base" or "/AnySurface" for generic content.
+        category: Virtual category path mirroring the live Daz Studio category
+                   tree, e.g. "/Default/Shaders/Iray/Liquid".
+        compatibility_base: Optional. Set only for content that has its OWN
+                             identity other content can target (e.g. a
+                             wardrobe item's own product/item name), matching
+                             the Scene ID Editor's "Compatibility Base" field.
+
+    Returns:
+        Dict with success, the echoed metadata fields, and `method`
+        ("static" or "instance") indicating which DzAssetMgr call path
+        actually worked on the connected Daz Studio version.
+
+    Warning:
+        This mutates the real Content Database on the connected machine —
+        there is no dry-run mode. Verify against disposable test content
+        before running against production packaging metadata.
+    """
+    return await _execute_by_id(
+        "vangard-set-content-metadata",
+        {
+            "filePath": file_path,
+            "contentType": content_type,
+            "compatibleWith": compatible_with,
+            "category": category,
+            "compatibilityBase": compatibility_base,
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tools — content browser FastAPI server
 # ---------------------------------------------------------------------------

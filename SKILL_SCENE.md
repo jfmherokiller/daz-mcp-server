@@ -20,7 +20,14 @@ Use these for 5-10x speedup when changing 3+ items:
 - `daz_list_categories`, `daz_browse_category`: Navigating `.duf` files.
 - `daz_search_content`: Keyword search across the library.
 - `daz_load_file`, `daz_load_product`: Load by path or product name.
+  - `daz_load_file`'s `replace_mode="add"` forces DzContentReplaceMgr into NeverReplace before
+    loading — use this when merging a Camera(s)/Light(s) Preset that you want ADDED rather than
+    silently replacing every existing camera/light in the scene (SKILL_STUDIO_CONCEPTS.md's
+    Content Type Indicator colors — that's Red-type content). Not yet live-verified.
 - `daz_check_compatibility`: Verify an asset works with a given figure.
+- `daz_set_content_metadata`: Assign Content Type / Compatibility / Category metadata to a file via
+  `DzAssetMgr.setFileMetadata()` — the scriptable equivalent of the manual Content DB Editor
+  workflow (SKILL_PACKAGING.md). Mutates the real Content Database; not yet live-verified.
 
 ## Materials
 - `daz_list_materials`, `daz_get_material`: Inspect surfaces on a node.

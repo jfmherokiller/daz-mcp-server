@@ -129,15 +129,73 @@ _RENDER_SCRIPT = """\
 })()
 """
 
-# args: {filePath, merge}
-# Returns: {success, file}
+# args: {filePath, merge, replaceMode}
+# Returns: {success, file, replaceMode}
 # openFile(path, true)  → merge into current scene
 # openFile(path, false) → replace current scene
+#
+# replaceMode: "add" forces DzContentReplaceMgr into NeverReplace before the load, then restores
+# whatever mode was active beforehand. This exists because openFile()'s plain merge=true/false
+# flag does NOT protect against a real gotcha (SKILL_STUDIO_CONCEPTS.md): loading a Camera(s) or
+# Light(s) Preset — "Red"-type content — always replaces ALL existing cameras/lights in the scene
+# regardless of the merge flag; that behavior is governed entirely by DzContentReplaceMgr, a
+# separate stateful manager (App.getContentMgr().getContentReplaceMgr()), confirmed real in
+# SKILL_SDK_REFERENCE.md but not yet live-tested end-to-end against an actual Camera/Light preset
+# load. The enum constant's exact DazScript-visible spelling is also unconfirmed (SDK docs show
+# DzContentReplaceMgr::ContentReplaceMode::NeverReplace as a nested C++ enum; this project has
+# twice found "static"/constructor claims in the SDK docs don't hold in live DazScript, so this
+# tries several plausible access paths rather than trusting one).
 _LOAD_FILE_SCRIPT = """\
 (function(){
     var args = getArguments()[0] || {};
-    App.getContentMgr().openFile(args.filePath, args.merge);
-    return { success: true, file: args.filePath };
+    var contentMgr = App.getContentMgr();
+    var replaceMgr = null;
+    var previousMode = null;
+    var modeChanged = false;
+    var replaceModeWarning = null;
+
+    if (args.replaceMode === "add") {
+        try {
+            replaceMgr = typeof contentMgr.getContentReplaceMgr === 'function'
+                ? contentMgr.getContentReplaceMgr() : null;
+            if (replaceMgr && typeof replaceMgr.setReplaceMode === 'function') {
+                var neverReplace = null;
+                if (typeof DzContentReplaceMgr !== 'undefined' && DzContentReplaceMgr && DzContentReplaceMgr.NeverReplace !== undefined) {
+                    neverReplace = DzContentReplaceMgr.NeverReplace;
+                } else if (typeof DzContentReplaceMgr !== 'undefined' && DzContentReplaceMgr && DzContentReplaceMgr.ContentReplaceMode && DzContentReplaceMgr.ContentReplaceMode.NeverReplace !== undefined) {
+                    neverReplace = DzContentReplaceMgr.ContentReplaceMode.NeverReplace;
+                } else if (typeof ContentReplaceMode !== 'undefined' && ContentReplaceMode && ContentReplaceMode.NeverReplace !== undefined) {
+                    neverReplace = ContentReplaceMode.NeverReplace;
+                }
+
+                if (neverReplace !== null) {
+                    if (typeof replaceMgr.getReplaceMode === 'function') {
+                        previousMode = replaceMgr.getReplaceMode();
+                    }
+                    replaceMgr.setReplaceMode(neverReplace);
+                    modeChanged = true;
+                } else {
+                    replaceModeWarning = "ContentReplaceMode.NeverReplace enum constant not found on this Daz Studio version; loaded without replace-mode protection.";
+                }
+            } else {
+                replaceModeWarning = "DzContentReplaceMgr not available on this Daz Studio version; loaded without replace-mode protection.";
+            }
+        } catch (eMode) {
+            replaceModeWarning = "DzContentReplaceMgr threw while preparing 'add' mode (" + eMode + "); loaded without replace-mode protection.";
+        }
+    }
+
+    try {
+        contentMgr.openFile(args.filePath, args.merge);
+    } finally {
+        if (modeChanged && replaceMgr && previousMode !== null) {
+            try { replaceMgr.setReplaceMode(previousMode); } catch (eRestore) {}
+        }
+    }
+
+    var result = { success: true, file: args.filePath, replaceMode: args.replaceMode || "default" };
+    if (replaceModeWarning) result.warning = replaceModeWarning;
+    return result;
 })()
 """
 
@@ -7491,6 +7549,163 @@ _EXPORT_SCENE_SCRIPT = """\
 })()
 """
 
+# args: {filePath, contentType, compatibleWith, category, compatibilityBase}
+# Returns: {success, filePath, contentType, compatibleWith, category, compatibilityBase, method}
+#
+# Wraps DzAssetMgr.setFileMetadata() — the one-call scriptable equivalent of the Content DB
+# Editor's Content Type / Compatibility / Category assignment fields (SKILL_PACKAGING.md's manual
+# workflow; SKILL_SDK_REFERENCE.md confirms this exact method from the SDK docs). SDK docs mark it
+# "static" on DzAssetMgr — this project has twice found "static" SDK claims don't hold in live
+# DazScript (most notably DzDForceEngine's methods, SKILL_SDK_REFERENCE.md's "Live-verification
+# pass"), so this tries the bare static call first and falls back to App.getAssetMgr() before
+# giving up. NOT yet live-tested end-to-end (no running Daz Studio instance was available when
+# this was written) — mutates the real Content Database, so treat the first live call as a
+# verification run against disposable test content, not production packaging metadata.
+_SET_CONTENT_METADATA_SCRIPT = """\
+(function(){
+    var args = getArguments()[0] || {};
+    if (!args.filePath) throw new Error("filePath is required");
+    if (!args.contentType) throw new Error("contentType is required");
+    if (!args.compatibleWith) throw new Error("compatibleWith is required");
+    if (!args.category) throw new Error("category is required");
+
+    var method = null;
+    var lastError = null;
+
+    if (typeof DzAssetMgr !== 'undefined' && DzAssetMgr && typeof DzAssetMgr.setFileMetadata === 'function') {
+        try {
+            if (args.compatibilityBase) {
+                DzAssetMgr.setFileMetadata(args.filePath, args.contentType, args.compatibleWith, args.category, null, args.compatibilityBase);
+            } else {
+                DzAssetMgr.setFileMetadata(args.filePath, args.contentType, args.compatibleWith, args.category);
+            }
+            method = "static";
+        } catch (eStatic) {
+            lastError = eStatic;
+        }
+    }
+
+    if (!method) {
+        try {
+            var mgr = App.getAssetMgr();
+            if (mgr && typeof mgr.setFileMetadata === 'function') {
+                if (args.compatibilityBase) {
+                    mgr.setFileMetadata(args.filePath, args.contentType, args.compatibleWith, args.category, null, args.compatibilityBase);
+                } else {
+                    mgr.setFileMetadata(args.filePath, args.contentType, args.compatibleWith, args.category);
+                }
+                method = "instance";
+            }
+        } catch (eInstance) {
+            lastError = eInstance;
+        }
+    }
+
+    if (!method) {
+        throw new Error(
+            "DzAssetMgr.setFileMetadata not callable (tried static DzAssetMgr.setFileMetadata and "
+            + "App.getAssetMgr().setFileMetadata) on this Daz Studio version"
+            + (lastError ? (": " + lastError) : "")
+        );
+    }
+
+    return {
+        success: true,
+        filePath: args.filePath,
+        contentType: args.contentType,
+        compatibleWith: args.compatibleWith,
+        category: args.category,
+        compatibilityBase: args.compatibilityBase || null,
+        method: method
+    };
+})()
+"""
+
+# args: {sourceNodeLabel, targetNodeLabel, tolerance, maxDeltas}
+# Returns: {sourceNode, targetNode, tolerance, deltaCount, truncated, deltas: [{vertex, dx, dy, dz}]}
+#
+# Wraps DzMorphDeltas.calculateDeltas(srcGeom, tgtGeom, tolerance) — a scriptable alternative to
+# the fully-manual "export both meshes, sculpt externally, Morph Loader Pro" workflow
+# SKILL_PACKAGING.md documents as the only known path for JCM/correction authoring. Both node
+# geometries are pulled via DzObject.getCachedGeom() (confirmed real accessor, returns a
+# DzVertexMesh — SDK docs), so both source and target must already be loaded as ordinary scene
+# nodes with MATCHING topology (e.g. the original figure vs. an externally-sculpted OBJ imported
+# back in via daz_load_file) — this sidesteps needing to load a bare, off-scene DzVertexMesh from
+# a file, which has no confirmed DazScript path.
+#
+# NOT yet live-tested (no running Daz Studio instance was available when this was written) — in
+# particular, whether DzMorphDeltas.calculateDeltas() is genuinely callable as documented (this
+# project has twice found "static" SDK claims fail in live DazScript) and whether its result
+# object's accessor methods (getNumDeltas/getDeltaIndex/getDeltaVec) work exactly as
+# SKILL_SDK_REFERENCE.md's live-confirmed read-path for EXISTING morphs implies for a freshly
+# CALCULATED one. Returns raw delta data for inspection/export only — turning this into an
+# installable morph property (Create New Property + ERC Freeze, SKILL_PACKAGING.md) is still a
+# separate, manual step; no DazScript path for that half is confirmed either.
+_GENERATE_MORPH_FROM_NODES_SCRIPT = """\
+(function(){
+    var args = getArguments()[0] || {};
+    if (!args.sourceNodeLabel) throw new Error("sourceNodeLabel is required");
+    if (!args.targetNodeLabel) throw new Error("targetNodeLabel is required");
+    var tolerance = args.tolerance !== undefined ? parseFloat(args.tolerance) : 0.001;
+    var maxDeltas = args.maxDeltas !== undefined ? parseInt(args.maxDeltas) : 5000;
+
+    function findNode(label) {
+        var n = Scene.findNodeByLabel(label);
+        if (!n) n = Scene.findNode(label);
+        return n;
+    }
+
+    var srcNode = findNode(args.sourceNodeLabel);
+    if (!srcNode) throw new Error("Source node not found: " + args.sourceNodeLabel);
+    var tgtNode = findNode(args.targetNodeLabel);
+    if (!tgtNode) throw new Error("Target node not found: " + args.targetNodeLabel);
+
+    var srcObj = srcNode.getObject();
+    if (!srcObj) throw new Error("Source node has no geometry: " + args.sourceNodeLabel);
+    var tgtObj = tgtNode.getObject();
+    if (!tgtObj) throw new Error("Target node has no geometry: " + args.targetNodeLabel);
+
+    if (typeof srcObj.getCachedGeom !== 'function' || typeof tgtObj.getCachedGeom !== 'function') {
+        throw new Error("getCachedGeom() not available on this Daz Studio version.");
+    }
+    var srcMesh = srcObj.getCachedGeom();
+    var tgtMesh = tgtObj.getCachedGeom();
+    if (!srcMesh) throw new Error("Could not resolve cached geometry for source node: " + args.sourceNodeLabel);
+    if (!tgtMesh) throw new Error("Could not resolve cached geometry for target node: " + args.targetNodeLabel);
+
+    if (typeof DzMorphDeltas === 'undefined' || typeof DzMorphDeltas.calculateDeltas !== 'function') {
+        throw new Error("DzMorphDeltas.calculateDeltas is not callable on this Daz Studio version.");
+    }
+
+    var deltas = DzMorphDeltas.calculateDeltas(srcMesh, tgtMesh, tolerance);
+    if (!deltas) throw new Error("DzMorphDeltas.calculateDeltas() returned no result.");
+
+    var numDeltas = typeof deltas.getNumDeltas === 'function' ? deltas.getNumDeltas() : 0;
+    var out = [];
+    var truncated = false;
+    var limit = numDeltas;
+    if (maxDeltas > 0 && numDeltas > maxDeltas) {
+        limit = maxDeltas;
+        truncated = true;
+    }
+    for (var i = 0; i < limit; i++) {
+        var vertIdx = deltas.getDeltaIndex(i);
+        var vec = deltas.getDeltaVec(i);
+        out.push({ vertex: vertIdx, dx: vec.x, dy: vec.y, dz: vec.z });
+    }
+
+    return {
+        sourceNode: srcNode.getLabel(),
+        targetNode: tgtNode.getLabel(),
+        tolerance: tolerance,
+        deltaCount: numDeltas,
+        truncated: truncated,
+        returnedCount: out.length,
+        deltas: out
+    };
+})()
+"""
+
 # Registry entries: script_id → (description, script_text)
 # Registered with DazScriptServer on startup so high-level tools call by ID.
 _REGISTRY: dict[str, tuple[str, str]] = {
@@ -7951,6 +8166,16 @@ _REGISTRY: dict[str, tuple[str, str]] = {
     "vangard-export-scene": (
         "Export selected nodes to FBX or OBJ via DzExportMgr",
         _EXPORT_SCENE_SCRIPT,
+    ),
+    # Phase 6.9: Content DB metadata (packaging)
+    "vangard-set-content-metadata": (
+        "Assign Content Type, Compatibility, and Category metadata to a file via DzAssetMgr.setFileMetadata()",
+        _SET_CONTENT_METADATA_SCRIPT,
+    ),
+    # Phase 6.9: Morph generation from two mesh nodes
+    "vangard-generate-morph-from-nodes": (
+        "Calculate morph deltas between two matching-topology scene nodes via DzMorphDeltas.calculateDeltas()",
+        _GENERATE_MORPH_FROM_NODES_SCRIPT,
     ),
 }
 

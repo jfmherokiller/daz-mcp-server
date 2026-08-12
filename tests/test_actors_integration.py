@@ -9,6 +9,7 @@ Tools covered
 - daz_look_at_character
 - daz_reach_toward
 - daz_interactive_pose
+- daz_generate_morph_from_nodes
 """
 
 from __future__ import annotations
@@ -22,7 +23,12 @@ from vangard_daz_mcp.tools.figure import (
     daz_look_at_point,
     daz_reach_toward,
 )
-from vangard_daz_mcp.tools.morph import daz_list_morphs, daz_search_morphs, daz_set_emotion
+from vangard_daz_mcp.tools.morph import (
+    daz_generate_morph_from_nodes,
+    daz_list_morphs,
+    daz_search_morphs,
+    daz_set_emotion,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -252,3 +258,33 @@ class TestInteractivePose:
     async def test_node_not_found_raises(self, live_client, figure_label):
         with pytest.raises(ToolError):
             await daz_interactive_pose(figure_label, "NonExistentTarget_XYZ")
+
+
+# ---------------------------------------------------------------------------
+# daz_generate_morph_from_nodes
+#
+# Not yet live-verified — DzMorphDeltas.calculateDeltas() and getCachedGeom()
+# are docs-derived (SKILL_SDK_REFERENCE.md), not confirmed live like most of
+# this project's other tools. The same-node case below should report zero
+# deltas (identical mesh vs. itself) if the plumbing works as documented.
+# ---------------------------------------------------------------------------
+
+class TestGenerateMorphFromNodes:
+    async def test_same_node_yields_no_deltas(self, live_client, figure_label):
+        """Diffing a node's geometry against itself should find zero deltas —
+        a cheap sanity check that doesn't require a second, sculpted mesh."""
+        result = await daz_generate_morph_from_nodes(figure_label, figure_label)
+        assert isinstance(result, dict)
+        assert result.get("deltaCount") == 0
+
+    async def test_source_not_found_raises(self, live_client, figure_label):
+        with pytest.raises(ToolError):
+            await daz_generate_morph_from_nodes("NonExistentSource_XYZ", figure_label)
+
+    async def test_target_not_found_raises(self, live_client, figure_label):
+        with pytest.raises(ToolError):
+            await daz_generate_morph_from_nodes(figure_label, "NonExistentTarget_XYZ")
+
+    async def test_negative_tolerance_raises(self, live_client, figure_label):
+        with pytest.raises(ToolError):
+            await daz_generate_morph_from_nodes(figure_label, figure_label, tolerance=-1.0)
