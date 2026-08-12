@@ -21,19 +21,28 @@ pages are large (the biggest, `dz_asset_mgr`, is ~10,500 lines), don't `Read` th
 ## DzAssetMgr — Content DB / CMS metadata (`App.getAssetMgr()`)
 
 **Headline finding: the entire manual Content DB Editor workflow (Compatibility Base, Category,
-Content Type assignment) is scriptable end-to-end**, via one static method:
+Content Type assignment) is scriptable end-to-end** — but NOT via the bare static call the SDK
+docs show. **Live-confirmed 2026-08-11**: `typeof DzAssetMgr.setFileMetadata` is `undefined` on the
+bare class (calling it throws `TypeError: Property 'setFileMetadata' of object [object Object] is
+not a function`) — a third confirmed instance of this project's recurring "static" SDK claim
+failing in live DazScript (after `DzDForceEngine`'s methods and `DzMorphDeltas.calculateDeltas()`,
+below). The real, working call is on the **instance**:
 
 ```javascript
 // filepath, contentType, compatibleWith (the base this asset works WITH), category,
 // [assetNode] (pull compat base from a node instead), [compatibilityBase] (the base this asset IS)
-DzAssetMgr.setFileMetadata(filepath, contentType, compatibleWith, category);
-DzAssetMgr.setFileMetadata(filepath, contentType, compatibleWith, category, assetNode);
-DzAssetMgr.setFileMetadata(filepath, contentType, compatibleWith, category, assetNode, compatibilityBase);
+var assetMgr = App.getAssetMgr();
+assetMgr.setFileMetadata(filepath, contentType, compatibleWith, category);
+assetMgr.setFileMetadata(filepath, contentType, compatibleWith, category, assetNode);
+assetMgr.setFileMetadata(filepath, contentType, compatibleWith, category, assetNode, compatibilityBase);
+// BROKEN despite SDK docs marking it [static]: DzAssetMgr.setFileMetadata(...)
 ```
 Since 4.9.0.17. This is a one-call equivalent of dragging a file onto the Content DB Editor's
 assignment fields — no `.dsx` authoring or `queueDBMetaFile`/`processDBMetaFileQueue` round-trip
 needed, confirming `SKILL_PACKAGING.md`'s manual-workflow-only framing was **incomplete** (the manual
 UI path is real and still valid, but a fully scripted packaging-metadata tool is also possible).
+Live-verified end-to-end via the `daz_set_content_metadata` MCP tool (`daz-mcp-server`) against a
+disposable test path — returns successfully, `method: "instance"` every time.
 
 **Taxonomy creation** (create-if-missing patterns, useful for building the metadata structure
 before calling `setFileMetadata`):
@@ -535,15 +544,33 @@ deltas.getHDUrl();                              // the .dhdm URL, confirmed — 
 deltas.getTargetVertexCount() / setTargetVertexCount(n);   // matches .dsf's vertex_count field
 deltas.hasDeltas() / deltas.loadDeltas();       // confirms LAZY LOADING — deltas aren't necessarily
                                                   // resident until loadDeltas() or first access
-// Programmatically generate a morph from two mesh states (source vs. sculpted target):
-var newDeltas = DzMorphDeltas.calculateDeltas(sourceGeom, targetGeom, /*tolerance*/ 0.001);  // static
+
+// Programmatically generate a morph from two mesh states (source vs. sculpted target).
+// LIVE-CONFIRMED 2026-08-11 — the SDK docs' `[static]` label on calculateDeltas() is WRONG (a
+// fourth confirmed instance of this project's recurring "static claim fails live" pattern), AND
+// the correct call shape is subtler than "just drop `static`": it IS an instance method, but the
+// calling instance is NOT what gets populated — the real result is the RETURN VALUE, a separate
+// DzMorphDeltas. Both corrections were needed together; either one alone still silently "works"
+// (no throw) while producing wrong/empty results:
+var caller = new DzMorphDeltas();                                    // any instance works as the caller
+var result = caller.calculateDeltas(sourceGeom, targetGeom, 0.001);  // BROKEN: DzMorphDeltas.calculateDeltas(...) — throws "is not a function"
+result.getNumDeltas();   // the real result — `caller.getNumDeltas()` stays 0/empty, always
+// Also confirmed: comparing a mesh to itself (literal same DzVertexMesh instance on both sides,
+// e.g. two getCachedGeom() calls on the SAME node) makes calculateDeltas() return null rather than
+// a valid zero-delta result — a genuine Daz Studio degenerate-input quirk, not a scripting error.
+// And: DzObject.getCachedGeom() can return null on a freshly created/duplicated node (e.g. right
+// after node.duplicate(...)) until something forces the geometry cache to build — a cheap
+// getWSBoundingBox() call on the node reliably triggers this.
 ```
 `DzMorph.getValueControl()` (since 4.9.3.137, deprecates `getValueChannel()`) returns the
 `DzFloatProperty` weight/dial that controls the morph's strength — this is the "enable" lever (0 =
 inert), and inherits all the `DzFloatProperty` min/max/clamp machinery above.
 `DzMorphDeltas.calculateDeltas()` is a genuinely useful find: **a documented, scriptable way to
 generate a morph purely from two mesh states**, without the manual "Morph Loader Pro" round trip
-`SKILL_PACKAGING.md`'s troubleshooting recipes currently describe as the only path.
+`SKILL_PACKAGING.md`'s troubleshooting recipes currently describe as the only path. Verified
+end-to-end via the `daz_generate_morph_from_nodes` MCP tool (`daz-mcp-server`) against a real
+Genesis 9 figure duplicated with a differing body-shape morph: correctly returned one delta per
+vertex (25182/25182) with real, non-trivial per-vertex offsets.
 
 ---
 
@@ -557,24 +584,72 @@ on the load call:
 
 ```javascript
 var mgr = App.getContentMgr().getContentReplaceMgr();
-mgr.setReplaceMode(ContentReplaceMode.AlwaysReplace);   // "Replace All" — also the plain load default
-mgr.setReplaceMode(ContentReplaceMode.NeverReplace);    // "Add" — never remove existing content
+mgr.setReplaceMode(DzContentReplaceMgr.AlwaysReplace);   // "Replace All" — also the plain load default
+mgr.setReplaceMode(DzContentReplaceMgr.NeverReplace);    // "Add" — never remove existing content
 // "Replace Selected" has no single-call headless equivalent — build the subset yourself:
 var potential = mgr.getPotentialReplaceNodeList(baseNode);   // everything that COULD be replaced
 // ... filter potential down to your desired subset ...
 mgr.setReplaceNodes(yourSubset);
 mgr.doReplace();          // executes the removal, THEN load your new content
 ```
+**LIVE-CONFIRMED 2026-08-11**: the enum access path above (`DzContentReplaceMgr.NeverReplace`,
+bare class-scoped, no separate enum-type name in the chain) is the one that actually resolves
+(value `1`) — probed directly against a running instance. The nested C++-style spelling the SDK
+docs' signature implies, `DzContentReplaceMgr.ContentReplaceMode.NeverReplace`, and a bare global
+`ContentReplaceMode.NeverReplace`, both come back `undefined` in live DazScript. Getting/restoring
+the ambient mode also confirmed working (`getReplaceMode()` returned `2` — `AskWhenMatching`, the
+apparent Daz Studio UI default — both before setting `NeverReplace` and after restoring it).
+End-to-end confirmed via the `daz_load_file(replace_mode="add")` MCP tool (`daz-mcp-server`):
+merging a scene copy into a scene with 6 cameras/3 lights left all of them intact (counts doubled
+from the merge, not replaced).
+
 `ContentReplaceMode.AskWhenMatching`/`AskToReplace` can open a **blocking UI dialog** — avoid both
 in headless/automated scripts. Separately, `App.getContentMgr()`'s own load methods
 (`openFile`/`openNativeFile`/`mergeFiles`/`loadAsset`) only ever expose a plain boolean `merge`
 flag — the 3-way replace choice is entirely `DzContentReplaceMgr`'s responsibility, coordinated by
 hand around your own load call, not an extra parameter you can pass into `openFile()`.
 
+**Separate live-confirmed gotcha (found via `daz_load_file` testing, not `DzContentReplaceMgr`
+itself)**: calling `openFile()`/`daz_load_file` with a path that's **already loaded** in the
+current scene — even to intentionally create a second copy — pops a modal "duplicate content"
+dialog that blocks the DazScriptServer's script-execution thread entirely. Every subsequent
+`/execute` and `/scripts/*/execute` call returns `503` (while `/status` still responds fine — a red
+herring) until a human manually dismisses the dialog. The original triggering call also times out
+client-side (30s) before the dialog even appears, making this easy to misdiagnose as "just a slow
+load." To get a second comparable node instead, use `node.duplicate(false)` (see the "Node
+duplication" section below) — it doesn't go through the content-loader's duplicate-detection path
+at all.
+
 `DzDefaultMaterial` was also re-checked here: confirmed **no** conversion/upgrade method exists on
 it or its `DzMaterial` base (only `getShaderLanguages()`, a generic reflection query) — validates
 that `daz_convert_to_iray_uber`'s `openFile()`-based shader-preset-application approach
 (SKILL_DAZSCRIPT.md) is the only real path, not an oversight.
+
+---
+
+## Node duplication — `DzNode.duplicate(bool)` (confirmed live, has a sharp edge)
+
+Found while looking for a way to get a second comparable mesh node without re-triggering the
+duplicate-file-load dialog above. `DzNode` has a real, working `duplicate` method with two
+overloads — DazScript can't disambiguate a bare `node.duplicate()` call (throws "Unable to
+determine callable overload"), so the boolean argument must always be passed explicitly:
+
+```javascript
+var dup = node.duplicate(false);   // independent duplicate — separate morphs/modifiers/geometry cache
+var dup = node.duplicate(true);    // LINKED duplicate — confirmed live to SHARE morph/modifier state
+                                     // with the original: changing a DzMorph value on one instance
+                                     // changed getValue() on the OTHER instance too. Surprising and
+                                     // easy to misuse if you expect "true = deep copy".
+```
+**Live-confirmed 2026-08-11** on a real Genesis 9 figure: `duplicate(true)` produced a node whose
+`getCachedGeom()` came back `null` and whose morph modifiers were literally the same underlying
+objects as the source (setting a morph on the duplicate changed the original's value too — verified
+by reading it back). `duplicate(false)` produced a fully independent duplicate — separate morph
+state confirmed by changing one and reading the other back unchanged — but its `getCachedGeom()`
+was ALSO initially `null` until something touched the node's geometry; calling `getWSBoundingBox()`
+on the node reliably forces the cache to build. If you need an independent second copy of a figure
+for scripted comparison/diffing (e.g. `daz_generate_morph_from_nodes`), always use `duplicate(false)`
+and touch the geometry before reading `getCachedGeom()`.
 
 ---
 
@@ -588,10 +663,12 @@ that `daz_convert_to_iray_uber`'s `openFile()`-based shader-preset-application a
    just inferred from docs. See the "Iray render settings" section above.
 2. Whether a direct "Artists" metadata setter exists (found only an indirect read path via
    `DzAssetMgr.showMoreProductInfo()`) — check `DzProductAssetContainer`/`DzAsset` SDK pages.
-   `ProductToken`/`GlobalID` writing likewise unconfirmed on `DzAssetMgr` itself. **Not tested
-   live this pass** — `DzAssetMgr`'s write methods (`setFileMetadata`, `createCompatibilityBase`,
-   etc.) mutate the real Content Database and were deliberately not exercised without explicit
-   permission; this remains a docs-only finding.
+   `ProductToken`/`GlobalID` writing likewise unconfirmed on `DzAssetMgr` itself. **Still
+   docs-only** for those two specifically. `setFileMetadata` itself, however, **is now live-tested
+   with explicit permission (2026-08-11)** — see the DzAssetMgr section above: the bare static call
+   is confirmed broken, `App.getAssetMgr().setFileMetadata(...)` is confirmed working.
+   `createCompatibilityBase` and the other taxonomy-creation helpers in that section remain
+   docs-only, not yet exercised live.
 3. ~~Whether `DzERCFreeze`/`DzERCLink` produce the exact on-disk JSON~~ — **partially addressed**:
    confirmed live that `DzERCLink`/`DzERCFreeze` are the *only* usable script-side path (see the
    `DzFormula`/`DzFormulaController` correction above) — but whether `doFreeze()`'s actual output
