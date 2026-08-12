@@ -961,10 +961,23 @@ too) and `IM00002789-01_Level19DS.dsx` (has both extra fields, `ProductTags="DAZ
 CloudAvailable"`). `ProductFileGuid` is confirmed ephemeral/random per scan, not a stable hash of
 the zip's contents or its internal `GlobalID` — don't rely on it for identity checks across scans.
 
-**Not yet tested**: whether clicking `Install` in DIM actually completes successfully and the
-content lands in the right place. Only "does DIM recognize and list the package correctly" has
-been confirmed so far — that's the harder part to get right from a cold write-up of the schema,
-but the actual install mechanics are still an open question for a future live test.
+**Follow-up confirmed the actual install too — full end-to-end, not just "DIM lists it
+correctly".** Clicking `Install` in DIM on the Tier 1 test package completed successfully: DIM
+moved it from "Ready to Install" to "Installed", its hover tooltip showed a correct
+`Installed To: <library path>`, `Installed Size`, and `Install Date`, and the file landed exactly
+where `Manifest.dsx` said it should — `<Content Library>/Scripts/VangardTest/HelloWorld/
+HelloWorld.dsa` (the `Content/` prefix stripped on install, matching the "Show Package Files"
+display behavior noted above).
+
+**Bonus finding**: even this bare Tier 1 package — no `ContentType`/`Category`/icon, no
+`Runtime/Support` metadata at all — showed up in Daz Studio's **Smart Content "Products" search**
+by product name after install (searching a substring of the product name surfaced it). It renders
+with a broken/warning-triangle icon in place of a thumbnail, since there's no icon file and no
+`Asset`/`ContentType` registration for Smart Content to categorize it against. **This means the
+`Runtime/Support` ContentDBInstall layer is specifically for getting a proper
+thumbnail/Type/Category in Smart Content — not for making the product discoverable there at all**,
+which was the wrong assumption going in; basic name-searchability comes for free from
+`Supplement.dsx`'s `ProductName` alone.
 
 ## Open questions for future SDK/IDA investigation
 
