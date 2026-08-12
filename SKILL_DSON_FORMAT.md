@@ -907,6 +907,65 @@ across three products" above for the full taxonomy findings.
    appropriate — its absence means the corrective could misfire on other characters' shapes wearing
    the same base figure.
 
+## Building a DIM-installable zip from scratch — live-confirmed 2026-08-12
+
+Everything above this point came from decompiling *existing* store products. This section is the
+reverse: a from-scratch minimal package was built by hand and dropped into a real user's DIM
+`Downloads/` folder to confirm what DIM actually requires vs. what's optional convention. See
+`plugins/daz/skills/daz-dim-packaging/SKILL.md` (AIHelpers hub) for the full step-by-step; this is
+the ground-truth record of what was tested.
+
+**A package with just `Manifest.dsx` + `Supplement.dsx` + `Content/<payload>` — no
+`Runtime/Support` `ContentDBInstall` `.dsx`/`.dsa`/icon triple at all — is sufficient for DIM to
+recognize and correctly list the package.** Test package: a single `Content/Scripts/VangardTest/
+HelloWorld/HelloWorld.dsa` file (a one-line `print()` script), zipped as
+`IM99999999-01_VangardHelloWorldTest.zip`, dropped into `InstallManager/Downloads/`. After a
+manual refresh in DIM, it appeared under "Ready to Install" → "Products" with:
+- **Product Name**: read verbatim from `Supplement.dsx`'s `ProductName`.
+- **Tag(s)**: a human-readable rendering of `Supplement.dsx`'s `ProductTags` (`DAZStudio4_5` →
+  "DAZ Studio 4.5+").
+- **Product ID / Package ID**: parsed straight from the filename (`IM99999999-01` →
+  `99999999`/`1`), not from `Manifest.dsx`'s `GlobalID` (which is a UUID, unrelated).
+- **"Show Package Files"** listed the content path as `/Scripts/VangardTest/HelloWorld/
+  HelloWorld.dsa` — confirming the `Content/` prefix in `Manifest.dsx`'s `<File VALUE="...">` is
+  stripped for display; the real install target is relative to the content library root, i.e.
+  `TARGET="Content"` + `Content/X` installs to `<ContentDirectory>/X`.
+
+**This means the `Runtime/Support` `ContentDBInstall` layer (`.dsx`/`.dsa`/icon triple,
+Content-DB-Editor-style metadata) is specifically for Smart Content searchability by
+Type/Category/Compatibility — not required for DIM itself to install a package.** Treat it as an
+optional second tier, not a mandatory part of "does this zip work in DIM."
+
+**DIM generates its own companion `.dsx` sidecar next to the zip in `Downloads/` — do not
+hand-author it.** Every real product in a populated Downloads folder has a matching
+`IM<ID>-<part>_<Name>.dsx` sitting alongside its `.zip`. This looked at first like a required
+input (it's a `ProductSupplement`-rooted XML, same root element name as the one that goes *inside*
+the zip, but with different fields), but a controlled test proved otherwise: the file was removed,
+DIM was refreshed with only the `.zip` present, and it regenerated an equivalent file from
+scratch. Confirmed schema (fields not seen in the internal `Supplement.dsx`):
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<ProductSupplement VERSION="0.1">
+ <ProductName VALUE="<from internal Supplement.dsx>"/>
+ <ProductStoreIDX VALUE="<ProductID>-<PackagePart, no leading zero>"/>   <!-- from the filename -->
+ <UserOrderDate VALUE="<ISO8601, stamped at scan/refresh time>"/>
+ <InstallerDate VALUE="<same as UserOrderDate for a locally-dropped, never-ordered package>"/>
+ <ProductFileGuid VALUE="<uuid, freshly RANDOMIZED on every re-scan>"/>   <!-- NOT the internal Manifest.dsx GlobalID -->
+ <InstallTypes VALUE="Content"/>        <!-- copied from internal Supplement.dsx if present -->
+ <ProductTags VALUE="DAZStudio4_5"/>    <!-- copied from internal Supplement.dsx if present -->
+</ProductSupplement>
+```
+Real examples confirm the same shape: `IM00007844-01_M4HandPoses.dsx` (`ProductStoreIDX="7844-1"`,
+no `InstallTypes`/`ProductTags` — that product's internal `Supplement.dsx` presumably lacks them
+too) and `IM00002789-01_Level19DS.dsx` (has both extra fields, `ProductTags="DAZStudio4_5,
+CloudAvailable"`). `ProductFileGuid` is confirmed ephemeral/random per scan, not a stable hash of
+the zip's contents or its internal `GlobalID` — don't rely on it for identity checks across scans.
+
+**Not yet tested**: whether clicking `Install` in DIM actually completes successfully and the
+content lands in the right place. Only "does DIM recognize and list the package correctly" has
+been confirmed so far — that's the harder part to get right from a cold write-up of the schema,
+but the actual install mechanics are still an open question for a future live test.
+
 ## Open questions for future SDK/IDA investigation
 
 - What other methods `DzAssetMgr` exposes beyond `queueDBMetaFile()` — worth a full method dump via
