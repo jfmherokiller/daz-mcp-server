@@ -708,6 +708,20 @@ and touch the geometry before reading `getCachedGeom()`.
    found `DzIrayPhotorealHelper`/`DzIrayInteractiveHelper` as children of `DzIrayPropertyHolder`
    earlier in this doc) on the material object, since a "container class for an element used to
    hold settings" is exactly the shape that pattern already resolved once before.
+
+   **New data point from SKILL_DSON_FORMAT.md's 2026-08-22 library-wide survey**: on disk, a
+   per-surface dForce settings provider is saved as an ordinary `scene.modifiers[]` entry —
+   `{"url": "#DZ__SPS_<ZoneName>", "parent": "#<Node>", "groups": ["<Zone>"]}` — referencing a
+   `modifier_library` entry with `extra: [{"type":
+   "studio/simulation_settings/dynamic_simulation"}, {"type": "studio_modifier_channels",
+   "channels": [...~20-135 channels...]}]`, confirmed across many real shipped products (cloth,
+   hair, fur). This is in tension with the class-hierarchy finding above (`DzDForceSettingsProvider`
+   is not a `DzModifier`) — the **save format** treats it as a modifier-shaped thing addressable by
+   an id following the `DZ__SPS_<ZoneName>` convention, which is worth trying directly:
+   `shape.getMaterial(i).findModifier("DZ__SPS_" + zoneName)` or the equivalent by-name lookup on
+   whatever object the live class hierarchy says actually owns it, before falling back to the
+   `getElementChild()` walk above. The `DZ__SPS_` id prefix itself (confirmed real from disk, not
+   guessed) is a concrete string to search for live.
 5. Whether `setValue()`'s clamping behavior (confirmed live for a manually-`setIsClamped(true)`
    camera property) holds the same way for a property that's clamped *by default* out of the box —
    e.g. an actual Genesis figure bone rotation — rather than one manually configured for the test.
