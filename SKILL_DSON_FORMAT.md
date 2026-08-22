@@ -703,6 +703,67 @@ as opposed to a user-dialable JCM (which would ship `value: 0`, dialed in only u
 conditions via ERC formulas, per the ERC section above). `current_value: 1` with no formulas is the
 on-disk signature of "this always applies once the prop is loaded," not "this is a slider."
 
+## Cross-vendor confirmation and new findings (RawArt's "Jawz2", Genesis 8.1 Male)
+
+Confirmed 2026-08-22 by decompiling all 23 `.duf` files across a second, unrelated product from a
+different vendor (RawArt, not Oso3D — a shark-creature transformation for **Genesis 8.1 Male**).
+This mostly reproduces the patterns above from an independent product (good cross-vendor
+confirmation the patterns are general Daz Studio behavior, not one vendor's quirk), plus several
+genuinely new findings:
+
+- **A new `asset_info.type`: `"preset_shape"`.** `Jawz Shape.duf` is a minimal single-purpose file:
+  one `scene.animations[]` entry, `{"url": "name://@selection#Raw%20Jawz-HD:?value/value", "keys":
+  [[0, 1]]}`. This reveals a **third addressing-fragment form** beyond `materials/<Group>` and a
+  bare node name: `#<ModifierId>` directly dials an existing **modifier's** own value channel. A
+  Shape preset is nothing more than "dial this one already-installed morph to this value" — it does
+  not carry or install the morph itself (that's the Character Preset's/the product's job); applying
+  it assumes the target modifier already exists on the selection.
+- **A Character Preset's large `scene.nodes[]` array is per-bone transform overrides, not
+  bloat or sub-figure references.** `Jawz CHR.duf` (`asset_info.type: "character"`) has **171**
+  `scene.nodes[]` entries — this is simply the figure's **entire bone hierarchy** (`hip` through
+  every finger/toe/lip/ear bone), one entry per bone that carries a transform/scale override to
+  build the creature's proportions. Don't treat a large node count in a Character Preset as
+  suspicious or as evidence of embedded sub-content — cross-check against the actual base figure's
+  known bone list first.
+- **A Character Preset's `scene.modifiers[]` can include a `SkinBinding` entry that's a pure
+  reference to the base figure's own existing skin binding, not a new one.** `Jawz CHR.duf` includes
+  `{"id": "SkinBinding", "url": ".../Genesis8_1Male.dsf#SkinBinding", "parent": "#Genesis8_1Male",
+  "channel": null}` alongside its real morph-dial modifiers (`Raw Jawz-HD` value=1, `Raw Jawz Tail`
+  value=1 — the character's own **built-in** tail growth morph, distinct from the separate
+  conforming Shark Tail prop below). No `channel` value, no new weight data — just a
+  refresh/reapplication reference, likely because the Save dialog captures every modifier touched
+  during the character's construction, including a skin-rebind step.
+- **This resolves *why* hardcoded-node-name `scene.animations[]` addressing exists (see the Reynard
+  section above) — it's not vendor carelessness, it's structurally required.** `name://@selection`
+  can only ever resolve to the *one* currently-selected node. A preset that must simultaneously
+  update **several different nodes in one click** — confirmed here across `Jawz 01 MAT<N> Legs.duf`
+  (targets `Genesis8_1Male`, the built-in tear node `Male%208_1%20Tear`, and a genitalia sub-figure
+  `G8MGenitalia`, ~6873 animation entries) vs. the matching `...Tail.duf` variant (the same three
+  targets **plus** `Shark%20Tail`, the separate conforming prop, when it's fitted) — has no choice
+  but to hardcode each target's literal node name. Contrast with the five `Eyes Mat*`/two
+  `Sclera *` presets in the same product, which touch only one thing at a time and correctly use
+  portable `name://@selection` addressing throughout (~300–900 entries each). **Rule of thumb:** a
+  preset spanning multiple simultaneously-affected nodes will not be portable; a single-target
+  preset can be and, in every real example seen so far, is.
+- **Genesis 8.1 Male's internal node name is `Genesis8_1Male`** (versus plain Genesis 8's
+  `Genesis8Male`, and Genesis 9's own separate convention) — another confirmed data point for the
+  existing "don't assume a fixed `/<Figure>/Base` or node-name pattern generalizes across
+  generations" caution.
+- **A wearable's own `scene.modifiers[]` can target the base figure it's conforming to, not just
+  itself** — `Independent Tail/Shark Tail and Shell.duf` (a dressed-up variant of the same tail
+  prop as `Parts/Shark Tail.duf`) includes `{"id": "Offset-1", "url": "#Offset", "parent":
+  "#Jawz%20Skin-1"}` — a push/displacement modifier applied to the **base figure's own skin node**,
+  not the tail prop — almost certainly to recede the body surface slightly at the attachment seam
+  so the tail's shell plates don't clip through it. Confirms a conforming accessory's bundled
+  modifiers aren't necessarily scoped to the accessory's own geometry.
+- **The same base prop geometry can ship twice at different "dress levels" within one product**:
+  `Parts/Shark Tail.duf` is the bare prop (1 material zone, 1 modifier — just `SkinBinding`, no
+  `image_library`), while `Independent Tail/Shark Tail and Shell.duf` wraps the *identical*
+  underlying geometry/`SkinBinding` reference with 16 additional "Shell" material zones (matching
+  the base figure's own skin zones, for a visually-blended shell-plate texture) and the seam-offset
+  modifier above. A `Parts/` (or similarly named) folder holding a leaner version of a named-folder
+  item elsewhere in the same product is a real, recognizable convention, not a duplicate/mistake.
+
 ## Render settings — the real Iray `RenderOptions` schema (resolves the biggest open question)
 
 Every prior version of this doc flagged Iray's actual render-settings property surface as unknown.
