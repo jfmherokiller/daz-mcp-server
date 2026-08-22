@@ -247,57 +247,130 @@ explains why preset application and direct property-by-name scripting
 (`findProperty("Bump Strength")`, SKILL_DAZSCRIPT.md) land on the exact same channel identifier
 space. Worth confirming against the SDK/live behavior rather than assumed.
 
-## Material presets: three real encoding styles (ground truth from a real installed product)
+## Material presets: real encoding styles, and a critical precedence gotcha (ground truth from a real installed product)
 
-Confirmed 2026-08-22 by decompiling five sibling `.duf` files from a real installed creature-morph
-addon's `Materials/` folder (`Oso3D/Reynard Addon` for Genesis 8 Male — a `preset_hierarchical_
-material` multi-zone recolor plus several plain `preset_material` single-effect files). This refines
-the single-target animation-addressing style documented above with two more real styles actually
-seen in shipped content, plus several non-obvious gotchas worth checking in a packaging review.
+Confirmed 2026-08-22 by decompiling **all 18** sibling `.duf` files in a real installed
+creature-morph addon's `Materials/` folder (`Oso3D/Reynard Addon` for Genesis 8 Male — eight
+`preset_hierarchical_material` recolor variants, five `preset_material` eye-effect variants, two
+`preset_material` fur-length variants, and two `preset_material` "wet" variants). The first pass at
+this analysis (an 8-file subset) reached two conclusions that a full sweep proved **wrong** — see
+the correction callout below before trusting anything about `scene.materials[]` in isolation.
 
-**Style 1 — animation/keyframe addressing** (documented above): single `material_library` entry
-`id: "default"`, `scene.materials[{"url": "#Default"}]`, values set indirectly via
-`scene.animations[]` keyframe-0 entries. Seen on narrow, single-target ("Yellow-content",
-apply-to-selection) utility presets.
+**⚠️ Correction to an earlier version of this section — `scene.materials[]` alone can be
+misleading; `scene.animations[]` is the one that wins.** The first pass concluded from
+`scene.materials[].extra[].channels[]` alone that `... Tail Fur Wet.duf`/`... Fur Wet.duf` set
+nothing meaningful, and that `... Eyes Fire.duf`'s two declared textures were unused/orphaned. Both
+conclusions were wrong, for the same root cause: **a file can declare a channel's value in BOTH
+`scene.materials[]` (inline) AND `scene.animations[]` (keyframe-0) at once, and when they disagree,
+the `scene.animations[]` value is the one that reflects the preset's real, intended effect** — the
+`scene.materials[]` value can be stale/vestigial boilerplate left over from however the Save dialog
+constructed the file. Concretely:
+- `Tail Fur Wet.duf` really does do something: `scene.animations[]` sets
+  `Highlight Weight = 0.2` and `highlight_roughness = 0.1` (sharper/brighter specular — the literal
+  "wet sheen" look) *and* drives six dForce hair-generation **Clumping** channels
+  (`PreSim`/`PreRender Clumping 1/2 Curves Density = 1` with a `White.png` density map,
+  `Clumpiness = 1`, `Clumping Bias = 0.3`) to make the fur visually clump into wet-looking strand
+  bundles — a genuinely well-designed, physically-motivated effect. None of this is visible from
+  `scene.materials[]` alone, which for this file has every channel declared `null`.
+- `Eyes Fire.duf`'s two textures are **not** orphaned: `scene.animations[]` wires
+  `ReynardAdd 1007 Glow Splotchy.png` to `Emission Color`'s `image_file` sub-path on `Cornea` and
+  `EyeMoisture`, and `Noise.png` to `Luminance`'s `image_file` sub-path on `Irises`/`Pupils`/
+  `Sclera` — a real emissive-glow effect. The original orphan-check bug was a substring search for
+  the literal filename (with real spaces) that missed every occurrence inside a `scene.animations[]`
+  URL, which stores the same path **percent-encoded** (`Glow%20Splotchy`). **Any orphan/unused-asset
+  check must search both the literal name form and its percent-encoded form, and must include
+  `scene.animations[]`, or it will produce false "unused" positives like this one did.**
 
-**Style 2 — reference-and-patch** (`scene.materials[]` only — **no top-level `material_library` key
-in the file at all**): each entry's `url` is either
-- `"#<ExistingGroupName>"` (e.g. `"#Face"`) — patches the group **already on the currently selected
-  node**, or
-- a full content-root path to a **shared external shader brick** (e.g. `/data/Daz%203D/dForce
-  %20Starter%20Essentials/.../Blended%20Dual%20Lobe%20Hair.dsf#Blended%20Dual%20Lobe%20Hair`) —
-  re-assigns that shared shader to the group, then overrides just the channels it cares about.
+**Practical rule going forward**: never characterize what a preset "does" from `scene.materials[]`
+alone. Always also dump `scene.animations[]`, and if the same logical channel (same group + channel
+id) is set in both places with different values, trust the `scene.animations[]` one.
 
-Either way, only the channels actually being changed carry a non-null `value`/`image`; every other
-declared channel in that same `extra[].channels[]` list is present with `value: null` — explicit
-metadata that "this channel exists on the target, don't touch it," not an instruction to clear it.
-Real example from the fur-recolor preset: the hair-shader-group entries declare 15 channels but set
-only one, `Hair Tip Color`, to a literal `[r, g, b]` triple — that single channel is the entire
-visible effect of the preset.
+### The addressing schemes actually used in `scene.animations[]` (broader than previously documented)
 
-**Style 3 — full-bake self-reference** (`material_library[]` holds one or more **complete** material
-definitions; `scene.materials[].url = "#<id>"` matches a `material_library[].id` **in the same
-file**): every one of the ~115 Iray Uber channels is populated with an explicit value, not just the
-changed ones — this is what Daz's Save dialog produces when it captures a material's *entire
-current live state* rather than a deliberate delta. Confirmed on the same product: its skin
-(`Face`/`Torso`/`Arms`/etc.) `material_library` entries are a full bake of Genesis 8 Male's
-**unchanged default** Iray Uber material (`diffuse` = the stock `0.7529412` grey) — the "Ginger Fox"
-recolor preset doesn't touch skin tone at all, it only changes fur, but the Save dialog wrote out
-the full (unchanged) skin material anyway. **A single file mixing Styles 2 and 3 in the same
-`scene.materials[]` array is real and confirmed** — this `preset_hierarchical_material` has
-full-bake entries for its Iray Uber skin/eye groups and lean reference-and-patch entries (external
-shared-brick URLs) for its hair-shader groups, side by side in one file.
+Every entry is `{"url": "<target>#<path>:?<property-path>", "keys": [[0, <value>]]}`. Two
+meaningfully different `<target>` forms were confirmed, and they are **not** interchangeable:
 
-**Practical implication for hand-authoring your own preset**: Style 2 (`"url": "#<GroupName>"`,
-only your changed channels non-null) is the simplest, safest, and smallest to write by hand — it
-can't accidentally clobber a channel you didn't mean to touch, unlike Style 3 where you'd need to
-correctly restate every channel's current value. Don't reach for a full bake unless you specifically
-need to guarantee an exact, from-scratch material state regardless of what's already on the target.
+- **`name://@selection#materials/<Group>:?...`** — resolves against whatever node is selected when
+  the preset is applied. Portable; this is what the five-file first pass saw everywhere (`Eyes
+  Fire`/`Tail Fur Wet`/`Fur Wet`/`Fur Length Fluffy`) and what SKILL_PACKAGING.md's "Yellow content,
+  requires a prior selection" behavior maps to.
+- **A literal, scene-specific internal node name** — e.g. `Genesis8Male#materials/Face:?...` or
+  `dForce%20Hair-1#materials/Face:?...`, with no `name://@selection` prefix at all. **Confirmed only
+  in the eight `preset_hierarchical_material` "Color" recolor files**, each of which contains
+  **20,000–28,000** such entries — a full property-tree restatement of every channel on every
+  material zone, addressed by the *exact node names present in the original vendor's scene at save
+  time*, not a portable selection-relative reference. Two consequences:
+  1. This is almost certainly why applying one of these files via `daz_load_file` or
+     `App.getContentMgr().openFile()` produced no visible change in live testing (see below) — the
+     fur-color entries target nodes literally named `dForce Hair`, `dForce Hair-1`, etc. (separate
+     strand-based hair prop nodes conformed to the figure, not surface groups on Genesis 8 Male
+     itself), which simply don't exist unless the full addon's fur-hair-prop setup is loaded. The
+     skin-material entries target a literal `Genesis8Male` — which *would* match a freshly-loaded
+     base figure by Daz's default naming, but turned out to just restate the figure's own unchanged
+     Iray Uber defaults (see below), so no visible difference was expected there either way.
+  2. **A preset built this way is not safely reusable on a differently-named scene graph.** If the
+     user has renamed the figure, or has more than one Genesis 8 Male loaded (`Genesis8Male-1`,
+     `Genesis8Male-2`, ...), these hardcoded-name entries silently target nothing. Don't assume
+     every Material Preset uses `@selection` addressing — check for hardcoded node names before
+     assuming a preset is portable.
+  Given this, `daz_apply_material_preset`/`App.getContentMgr().openFile()` remains **confirmed
+  working** for whole-shader promotion and (presumably) for genuinely `@selection`-addressed
+  presets — the negative live-testing result below is best explained by missing target nodes and
+  hardcoded naming, not a broken apply mechanism in general. Retesting against a file that uses only
+  `name://@selection` addressing, with the correctly-named target actually present, is the natural
+  follow-up and is **not yet done**.
 
-### Minimal hand-authored Style 2 template — write format confirmed, scripted apply is NOT
+### What the eight "Color" recolor variants actually change (corrected)
 
-A self-contained recolor preset that patches an existing `"Torso"` surface group's diffuse color on
-whatever figure is selected when it's applied — no `material_library` key needed at all:
+All eight share **byte-identical** `scene.materials[]`-inline `Hair Tip Color` values
+(`[0.7297401, 0.5325205, 0.3511192]`, a plain tan) — this looked like a copy-paste bug in the first
+pass, but per the precedence rule above it's vestigial: the `scene.animations[]` entries that
+actually apply reset `Hair Tip Color` to pure white `[1, 1, 1]` on every real target node (`dForce
+Hair`, `dForce Hair-1`, ...) instead. **The real per-variant differentiation is an
+`<image_file>` texture wired to `Root/Tip Transmission Color` and `Hair Root/Tip Color`** — a
+uniquely-named `ReynardAdd <VariantName> FurColor.png` per file (confirmed distinct filenames:
+`GingerFox`, `BatEaredFox`, `MarbleFox`, `RedBlackFox`, `RedTippedBlackFox`, `SilverFox`,
+`SpiritFox`, `TanFox`) — with the flat tip-color tint kept neutral white specifically so it doesn't
+recolor the pattern texture. **`Snow Fox` is a genuine, deliberate outlier, not a broken file**: it
+skips the fur-texture mechanism entirely (no `Hair Tip Color` override, no per-variant `FurColor`
+texture — relying on the shader's own pale/white default for its "snow" look) and instead retints
+the **eyes**: `Pupils`/`Irises`/`Sclera`'s `diffuse` channel gets a `Reynard 1006 Blue BaseColor.png`
+`image_file` — a believable "snow fox has pale blue eyes" design choice with a completely different
+mechanism than the other seven variants.
+
+### Reference-and-patch and full-bake styles (still real, now correctly scoped)
+
+Two more styles genuinely exist in `scene.materials[]`/`material_library`, but per the correction
+above, only trust them for a file where no `scene.animations[]` entry contradicts them:
+
+- **Reference-and-patch** (`scene.materials[]` entries only, `"url": "#<ExistingGroupName>"` or a
+  shared external shader-brick path): declares a channel list where only genuinely-changed channels
+  carry non-null `value`/`image`, everything else stays `null` (metadata: "exists on the target,
+  don't touch it"). Confirmed as the base layer the hierarchical Color/Wet/Eyes files build on top
+  of with `scene.animations[]`.
+- **Full-bake self-reference** (`material_library[]` holds complete material definitions;
+  `scene.materials[].url = "#<id>"` self-references a same-file `material_library[].id`): every one
+  of the ~115 Iray Uber channels populated explicitly. Confirmed on the same product: the skin
+  (`Face`/`Torso`/`Arms`/etc.) `material_library` entries in every "Color" file are a full bake of
+  Genesis 8 Male's **unchanged default** Iray Uber material (`diffuse` = stock `0.7529412` grey) —
+  these recolor presets never touch skin tone, only fur; the Save dialog captured and restated the
+  unchanged skin material anyway.
+
+**Practical implication for hand-authoring your own preset**: prefer `name://@selection`-addressed
+`scene.animations[]` entries (`.../channels/<Name>/value` and, for textures, `.../<Name>/image_file`)
+over a bare `scene.materials[]` patch — it's the form confirmed to carry the actually-applied value
+in every file where both exist, and it's portable across differently-named scenes. Reserve a
+full-bake `material_library` entry for when you need to guarantee an exact from-scratch state
+regardless of the target's prior values.
+
+### Minimal hand-authored template — write format AND scripted apply both confirmed live
+
+The first attempt at this template used a bare `scene.materials[]` patch (Style 2/3 above) and
+**failed to apply** via both `daz_load_file` and `App.getContentMgr().openFile()` — even the real,
+unmodified `ReynardAdd Color Ginger Fox.duf` produced no visible change applied that way. Following
+the precedence rule discovered above (`scene.animations[]` is what actually applies), the fix was to
+address the channel through `scene.animations[]` instead of a bare `scene.materials[]` patch —
+**confirmed live 2026-08-22, this works:**
 
 ```python
 import gzip, json
@@ -312,26 +385,10 @@ duf = {
         "modified": "2026-08-22T00:00:00Z",
     },
     "scene": {
-        "materials": [
+        "animations": [
             {
-                "url": "#Torso",
-                "groups": ["Torso"],
-                "extra": [
-                    {"type": "studio/material/uber_iray", "version": "1.1.0.0"},
-                    {
-                        "type": "studio_material_channels",
-                        "channels": [
-                            {
-                                "channel": {
-                                    "id": "diffuse",
-                                    "type": "float_color",
-                                    "value": [0.6, 0.1, 0.1],
-                                },
-                                "group": "/Base/Diffuse/Reflection",
-                            }
-                        ],
-                    },
-                ],
+                "url": "name://@selection#materials/Torso:?diffuse/value",
+                "keys": [[0, [0.6, 0.1, 0.1]]],
             }
         ]
     },
@@ -341,37 +398,31 @@ with open("TorsoRecolor.duf", "wb") as f:
     f.write(gzip.compress(json.dumps(duf).encode("utf-8")))
 ```
 
-Only include channel entries you actually want to change — omit everything else rather than
-declaring it with `"value": None`; both are valid (see Style 2 above) but omitting is simpler to
-author correctly by hand. `"url": "#<GroupName>"` must match a surface group name that already
-exists on whatever node is selected when the preset is applied (check via `daz_list_materials`);
-it does not create a new group. Save uncompressed (skip the `gzip.compress` call, write the raw
-`json.dumps(...)` bytes) if you want to hand-edit the file afterward — Daz Studio reads both forms
-transparently (see "Compression & container" above).
+Applied via the same script-level codepath `daz_apply_material_preset` uses
+(`Scene.selectAllNodes(false); node.select(true);` then
+`App.getContentMgr().openFile(path, new DzFileIOSettings(), false)`), against a freshly-loaded real
+Genesis 8 Male: `Torso`'s `getBaseColor()` read back `{red: 0.325, green: 0.0063, blue: 0.0063}`
+afterward — the exact gamma-decoded (2.2) form of the linear `[0.6, 0.1, 0.1]` written, confirming
+both that the value round-trips correctly and that **`App.getContentMgr().openFile()` genuinely
+does apply a hand-authored `scene.animations[]`-addressed preset** — the earlier negative result was
+caused by using the wrong addressing style (a bare `scene.materials[]` patch), not by the apply
+mechanism itself.
 
-**Live-tested 2026-08-22 and NOT confirmed working when applied by script — flagging honestly
-rather than presenting this as proven.** Two scripted apply attempts against a real Genesis 8 Male
-in a live Daz Studio, checked via `mat.getBaseColor()`/`mat.className()` after each:
-1. `daz_load_file` (generic scene merge) on this exact template — no change to Torso's base color.
-2. `App.getContentMgr().openFile(path, new DzFileIOSettings(), false)` after selecting the target
-   node with `Scene.selectAllNodes(false); node.select(true)` — the **exact** codepath
-   `daz_apply_material_preset` uses and that SKILL_DAZSCRIPT.md confirms live for shader-preset
-   promotion (`DzDefaultMaterial` → `DzUberIrayMaterial`) — still no change.
+For a **texture** instead of a flat value, use the same `<target>#materials/<Group>:?...`
+path with `/image_file` in place of `/value` (confirmed above from `Eyes Fire.duf`'s glow-texture
+wiring and the Color-variant fur-pattern wiring): e.g.
+`"name://@selection#materials/<Group>:?extra/studio_material_channels/channels/<Channel%20Name>/image_file"`
+with `"keys": [[0, "<content-root-relative path, %20-encoded>"]]`. For the `diffuse` shortcut
+specifically, drop the `extra/studio_material_channels/channels/<Name>/` segment entirely — it's
+`?diffuse/image_file` directly, as seen above.
 
-To isolate whether this was a bug in the hand-authored template rather than the apply mechanism,
-the **real, unmodified `ReynardAdd Color Ginger Fox.duf`** was applied the same way (selected
-Genesis 8 Male, `openFile`) — its Torso material's `className()` stayed `DzUberIrayMaterial` (never
-switched to the hair-brick shader the file assigns) and its base color was unchanged. Since even a
-real, shipping, presumably-functional vendor file produced no observable change through this path,
-the conclusion is that **`App.getContentMgr().openFile()` does not reproduce a genuine Content
-Library "apply preset" click for this reference-and-patch, multi-group style** — it's confirmed
-sufficient for whole-material shader promotion (a different, simpler operation: replace everything
-on the node) but not confirmed for `"url": "#<GroupName>"`-addressed per-group patching. Whatever
-the real UI does differently when you double-click a Material Preset in Smart Content — a
-`DzContentReplaceMgr`-driven path, a distinct `DzContentMgr` method, or something else entirely —
-is still an open question; see "Open questions" at the end of this file. **The write format above
-is solid ground truth** (real files use exactly this shape); **only the scripted-apply half is
-unconfirmed.**
+`name://@selection#materials/<Group>:?...` requires the group to already exist on whatever node is
+selected when applied (check via `daz_list_materials`) — it does not create a new group. Avoid the
+literal-node-name form (`<NodeName>#materials/<Group>:?...`) for anything meant to be reusable —
+it only matches a scene with a node of that exact internal name (see the addressing-schemes section
+above). Save uncompressed (skip `gzip.compress`, write raw `json.dumps(...)` bytes) if you want to
+hand-edit the file afterward — Daz Studio reads both forms transparently (see "Compression &
+container" above).
 
 ### Real-world gotchas confirmed from the same product (useful for a packaging-review pass)
 
@@ -396,13 +447,15 @@ unconfirmed.**
   *body* fur variant's filename, not its own. The vendor evidently cloned the body preset to make
   the tail one and never updated the embedded id. Reinforces the existing caution above: never
   trust `asset_info.id` as a "what file is this" check.
-- **A shipped `image_library` entry is not proof a texture is actually used.** `... Eyes Fire.duf`
-  declares two texture maps (`ReynardAdd 1007 Glow Splotchy.png`, `Noise.png`) that appear **nowhere
-  else in the file** — not referenced by any channel's `image` field on any material. All of this
-  preset's actual channel values (`Emission Color: [0,0,0]`, full Iray Uber defaults otherwise) are
-  inert — as far as the file's own contents show, this specific "Fire" eye preset does not visibly
-  change anything. Confirm an `image_library` entry is actually wired to a channel before assuming
-  it does something; a real commercial product can ship a materially non-functional file.
+- **Checking whether an `image_library` entry is actually used requires searching
+  `scene.animations[]` with the percent-encoded filename, not just `scene.materials[]`'s `image`
+  field with the literal name.** An earlier pass of this analysis wrongly concluded `... Eyes
+  Fire.duf`'s two textures (`ReynardAdd 1007 Glow Splotchy.png`, `Noise.png`) were unused, because
+  it searched for the literal (space-containing) filename and only checked `scene.materials[]` —
+  both textures are in fact wired via `scene.animations[]` `.../image_file` entries (see the
+  correction callout above), just addressed with `%20` in place of spaces. Any orphan-asset check
+  needs to search both the literal and percent-encoded forms of every `image_library` name, across
+  `scene.materials[]` **and** `scene.animations[]`, before concluding something is unused.
 - **`extra[].item_post_load_script` entries can reference completely unrelated third-party
   products.** The same `Eyes Fire.duf`'s eye-surface entries carry `item_post_load_script` extras
   pointing at two other vendors' Genesis 8 Male hair products (`Soto/Dolb`, `Soto/Maxx`) — almost
@@ -1179,17 +1232,16 @@ to only work for `Script/Utility`.
 
 ## Open questions for future SDK/IDA investigation
 
-- **How a reference-and-patch, multi-group Material Preset (Style 2 above) actually gets applied.**
-  Confirmed live 2026-08-22: neither `daz_load_file` (scene merge) nor
-  `App.getContentMgr().openFile()` after selecting the target node reproduces the effect — tested
-  against both a hand-authored template AND the real, unmodified `ReynardAdd Color Ginger Fox.duf`,
-  neither changed the target material's `className()` or base color. `openFile()` is confirmed
-  live elsewhere (SKILL_DAZSCRIPT.md) for whole-shader promotion/replacement, so the gap is
-  specific to `"url": "#<GroupName>"`-addressed per-group patching, not `openFile()` in general.
-  Worth investigating: a distinct `DzContentMgr`/`DzContentReplaceMgr` codepath, a required
-  intermediate step (e.g. explicit `DzFileIOSettings` flags), or whether this content type needs to
-  go through the Content Library pane's item-click handler specifically rather than any bare
-  `openFile()` call.
+- ~~How a reference-and-patch, multi-group Material Preset actually gets applied via script~~ —
+  **resolved 2026-08-22**: a bare `scene.materials[]` patch does NOT apply via
+  `App.getContentMgr().openFile()`, but a `scene.animations[]`-addressed
+  `name://@selection#materials/<Group>:?diffuse/value` entry does (confirmed live, gamma-decoded
+  value read back correctly) — see the material-presets section above. Still genuinely open: why the
+  real `ReynardAdd Color Ginger Fox.duf` showed no visible change when applied to a bare Genesis 8
+  Male — now understood to be because its `scene.animations[]` entries target literal node names
+  (`dForce Hair`, `dForce Hair-1`, ...) that don't exist without the full addon's fur-prop setup
+  loaded, not a failure of `openFile()` itself — but this hasn't been re-verified against a scene
+  that actually has those nodes present.
 - What other methods `DzAssetMgr` exposes beyond `queueDBMetaFile()` — worth a full method dump via
   the SDK headers or IDA against the compiled plugin.
 - Whether `daz_apply_material_preset`/`daz_set_material_property` internally traverse the same
