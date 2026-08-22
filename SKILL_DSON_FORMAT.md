@@ -567,6 +567,142 @@ morph deltas — use Reverse Deformation instead"): a compliant Character Preset
 references to morphs that already exist* (the base figure's own morphs, or the vendor's own
 separately-shipped ones) plus dial values — never a copy of someone else's delta data.
 
+## A complete real conforming prop, end to end (ground truth — geometry, rigging, and skinning)
+
+Confirmed 2026-08-22 by decompiling a real, simple, fully-shipped conforming prop
+(`Oso3D`'s "Otter Tail" for Genesis 8 Male — a Pattern A item per the two-pattern split above: new
+geometry, own bone chain, conforms to a base figure). This is the piece that section was missing —
+it described the *file layout* but not how a prop's actual geometry/rigging/skinning is encoded.
+Two files matter: the thin wrapper `.duf` (what's in `Content/People/.../Props/`) and the real
+payload `.dsf` it references (under `data/<Vendor>/<Product>/`, **not necessarily gzip-compressed**
+— this one was plain JSON despite the `.dsf` extension, reinforcing the existing "detect compression,
+don't assume it" caution).
+
+### Wrapper `.duf` — `scene.nodes[]` is a thin instantiate-and-override list
+
+```json
+{
+  "id": "Ottertail6 UVMapped_3733",
+  "url": "/data/Oso3D/Otter/Otter%20Tail/Ottertail6%20UVMapped_3733.dsf#Ottertail6%20UVMapped_3733",
+  "label": "Otter Tail",
+  "parent": "name://@selection:",
+  "conform_target": "name://@selection:",
+  "geometries": [{"id": "geometry", "url": ".../Ottertail6%20UVMapped_3733.dsf#Ottertail6%20UVMapped",
+                  "type": "subdivision_surface", "current_subdivision_level": 1}]
+}
+```
+Followed by **27 more `scene.nodes[]` entries**, one per bone (`hip` → `Tail1`...`Tail17`, plus
+`pelvis`/`lThighBend`/`lThighTwist`/`lShin`/`rThighBend`/`rThighTwist`/`rShin`/`abdomenLower`/
+`abdomenUpper` reusing Genesis 8's own bone *names* for the segment of skeleton this prop needs to
+follow). Each is just `{id, url, name, label, parent, preview}` — **no explicit `"type"` key at
+all** on any of these wrapper-level node entries; the real `type` (`"figure"` for the root,
+implicitly `"bone"` for the rest) lives in the `node_library` entry the `url` points to, not
+restated here. `preview` blocks (`center_point`/`end_point`/`oriented_box`/`rotation_order`) are
+**cosmetic viewport-gizmo bounding data only** — flat `[x, y, z]` arrays, not real dial-able
+properties; don't confuse them with the payload file's `node_library` fields of the same name (next
+section), which are full property objects.
+
+### Payload `.dsf` — `node_library[]`: real properties, not cosmetic previews
+
+The referenced node's *actual* definition, e.g. `center_point`/`end_point`/`orientation`/
+`rotation`/`translation`/`scale` are each a **list of one property object per axis**, not a flat
+triple:
+```json
+"center_point": [
+  {"id": "x", "type": "float", "name": "xOrigin", "label": "X Origin", "value": 0, "min": -10000, "max": 10000},
+  {"id": "y", "type": "float", ...}, {"id": "z", "type": "float", ...}
+]
+```
+`"type": "figure"` lives here (on the root node only — bone nodes' `type` wasn't inspected in
+detail but the same file/library split applies). This confirms the general rule: **the wrapper
+`.duf`'s `scene.nodes[]` entries are overrides on top of whatever the referenced `node_library`
+entry already defines — absence of a field in the wrapper means "use the payload's own value," not
+"this field doesn't exist."**
+
+### `geometry_library[]` — the actual polymesh (vertices + polygons), fully ground-truthed
+
+```json
+{
+  "id": "Ottertail6 UVMapped", "name": "geometry", "type": "subdivision_surface",
+  "edge_interpolation_mode": "edges_only", "subd_normal_smoothing_mode": "smooth_all_normals",
+  "vertices": {"count": 3733, "values": [[0.0026, 91.408, -7.327], [9.502, 100.72, -9.654], ...]},
+  "polygon_groups": {"count": 18, "values": ["Tail17", "Tail16", ..., "Tail1", "Hip"]},
+  "polygon_material_groups": {"count": 1, "values": ["Tail"]},
+  "polylist": {"count": 3728, "values": [[17, 0, 85, 84, 86], [17, 0, 86, 84, 87], ...]},
+  "default_uv_set": "/data/Oso3D/Otter/Otter%20Tail/UV%20Sets/Oso3D/Base/default.dsf#default",
+  "root_region": {"id": "Actor", "children": [{"id": "Hip", "map": {"count": 3728, "values": [0,1,2,...]}}, ...]},
+  "graft": {"vertex_count": 16384, "poly_count": 16196,
+            "vertex_pairs": {"count": 84, "values": [[0, 4], [1, 1300], ...]}},
+  "extra": [{"type": "studio_geometry_channels", "channels": [
+    {"channel": {"id": "SubDRenderLevel", "type": "int", "value": 0}}, ...]}]
+}
+```
+- **`vertices.values`**: flat list of `[x, y, z]` positions, index = vertex index used everywhere
+  else in this geometry (polylist, weight maps, region maps, graft pairs).
+- **`polylist.values`**: each entry is `[material_group_index, polygon_group_index, v0, v1, ...,
+  vN]` — a **variable-length** vertex-index loop (this file is all triangles, 3 trailing indices;
+  quads would have 4). The two leading integers index into `polygon_material_groups.values` and
+  `polygon_groups.values` respectively — **not vertex indices themselves.**
+- **`polygon_groups`** here are literally named after the bones (`"Tail17"`, ..., `"Hip"`) — a real,
+  observed convention (face/smoothing groups mirroring the bone primarily responsible for them),
+  not a schema requirement.
+- **`root_region`**: a hierarchical tree (one node per body-region/bone, nested `children`) where
+  each entry's `map` is a flat list of **polygon indices** belonging to that region — this is very
+  likely what backs per-region Smoothing Modifier collision protection and similar region-scoped
+  UI, not something this project has directly exercised yet.
+- **`graft`** (new, not previously documented in this project): the mechanism a conforming
+  accessory uses to seamlessly blend its geometry into a base figure at the attachment seam —
+  `vertex_pairs.values` are `[thisPropVertexIndex, baseFigureVertexIndex]` pairs, mapping this
+  prop's boundary vertices onto the corresponding vertices on the figure it conforms to (Genesis 8
+  Male here) so normals/geometry blend smoothly across the seam instead of showing a hard edge.
+  `vertex_count`/`poly_count` in this block describe the **base figure's** full mesh (Genesis 8
+  Male's 16384 verts / 16196 polys), not this prop's own — confirmed by the numbers matching
+  Genesis 8's known topology, not the Otter Tail's 3733/3728.
+
+### `modifier_library[]`'s `"SkinBinding"` entry — the real weight-map format
+
+This is the piece that makes `conform_target` (documented earlier in this file) actually work —
+without it, `conform_target` alone is a confirmed dead end per SKILL_RIGGING.md:
+```json
+{
+  "id": "SkinBinding", "name": "SkinBinding", "parent": "#geometry",
+  "skin": {
+    "node": "#Ottertail6%20UVMapped_3733",
+    "geometry": "#Ottertail6%20UVMapped",
+    "vertex_count": 3733,
+    "joints": [
+      {"id": "Tail17", "node": "#Tail17",
+       "node_weights": {"count": 1255, "values": [[84, 1], [85, 1], [86, 1], ...]}},
+      ... one entry per bone (24 here) ...
+    ],
+    "selection_map": { /* not inspected in detail */ }
+  },
+  "extra": [{"type": "skin_settings", "binding_mode": "General", "general_map_mode": "DualQuat",
+             "scale_mode": "BindingMaps", "auto_normalize_general": true,
+             "auto_normalize_local": true, "auto_normalize_scale": true}]
+}
+```
+- **`skin.joints[].node_weights.values`** is a **sparse per-vertex weight list**: `[vertex_index,
+  weight]`, one entry per vertex actually influenced by that joint (not one per `vertex_count`) —
+  the same sparse-list convention as morph `deltas.values` (documented above) and
+  `DzMorphDeltas.calculateDeltas()`'s live-confirmed output shape.
+- The wrapper `.duf`'s own `scene.modifiers[]` entry for `"SkinBinding"` just references this by
+  url + `parent: "#geometry"`; the actual weight data lives entirely in the payload file's
+  `modifier_library`, never duplicated in the wrapper.
+- `general_map_mode: "DualQuat"` (dual-quaternion skinning) is the modern default; `"General"`
+  binding mode and the `auto_normalize_*`/`BindingMaps` scale settings are what the Transfer
+  Utility/rigging tools write when weight-mapping a new item — worth treating as the standard
+  values to reuse rather than guessing at alternatives if hand-authoring a skin binding.
+
+### Base-figure morph fix, alongside the skin binding
+
+The same prop ships a `"Tail Fix"` modifier (`scene.modifiers[]` in the wrapper, deltas in a
+sibling `Morphs/Oso3D/Base/Tail Fix.dsf`) with `channel.current_value: 1` and
+`group: "/Morphs/Morph Loader"` — an **always-on** corrective baked into the prop at full strength,
+as opposed to a user-dialable JCM (which would ship `value: 0`, dialed in only under specific pose
+conditions via ERC formulas, per the ERC section above). `current_value: 1` with no formulas is the
+on-disk signature of "this always applies once the prop is loaded," not "this is a slider."
+
 ## Render settings — the real Iray `RenderOptions` schema (resolves the biggest open question)
 
 Every prior version of this doc flagged Iray's actual render-settings property surface as unknown.
