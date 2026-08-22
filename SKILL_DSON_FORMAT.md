@@ -997,9 +997,21 @@ Dropped in DIM's Downloads folder, installed, then opened in Daz Studio's Smart 
 This confirms the full two-tier model end-to-end: Tier 1 alone is enough for DIM to install and
 for Smart Content to find the product by name (with a broken icon); adding the Tier 2 triple is
 what turns that into a real thumbnail with correct type/category filtering. Not yet tested by this
-process: a `ContentType`/`Category` pair for a non-script asset (e.g. `Preset/Shader/MDL` or
-`Follower/Wardrobe/*`), and a package that includes an actual `data/` geometry/morph payload
-alongside the ContentDBInstall metadata.
+process: a package that includes an actual `data/` geometry/morph payload alongside the
+ContentDBInstall metadata.
+
+**A non-script `ContentType` confirmed live 2026-08-22 too — the badge/category mechanism
+generalizes, not a script-specific quirk.** Built a third test package: a placeholder wardrobe item
+(a syntactically-valid but geometry-free `.duf` — this test targets the DIM/ContentDB/Smart-Content
+packaging plumbing, not actual cloth-fit correctness) declaring `ContentType="Follower/Wardrobe/
+Shirt"`, `Category="/Default/Wardrobe/Shirts"`, `Compatibility="/Genesis 9/Base"`, and its own
+`CompatibilityBase="/VangardTest/TestShirt"` (the item-has-its-own-identity case from the taxonomy
+notes above, not previously exercised by the script test since a script never declares a
+`CompatibilityBase`). Installed via DIM and opened in Smart Content: real thumbnail rendered, a
+**"Wardrobe"** type badge appeared (not "Script" — confirmed the badge text is driven by the
+declared `ContentType`, not hardcoded), and the item filed under a **"Wardrobe"** category node.
+Confirms the Tier 2 mechanism is generic across `ContentType` values, not something that happened
+to only work for `Script/Utility`.
 
 ## Open questions for future SDK/IDA investigation
 
