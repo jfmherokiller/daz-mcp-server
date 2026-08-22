@@ -979,6 +979,28 @@ thumbnail/Type/Category in Smart Content — not for making the product discover
 which was the wrong assumption going in; basic name-searchability comes for free from
 `Supplement.dsx`'s `ProductName` alone.
 
+**Tier 2 (the `Runtime/Support` ContentDBInstall triple) confirmed live 2026-08-21 — closes the
+one gap the Tier 1 test left open.** Built a second test package, same shape as the Tier 1 one
+plus the full triple: `Runtime/Support/<Name>.dsx` (`ContentType="Script/Utility"`, category
+`/Default/Utilities/Scripts` — the taxonomy leaf documented above from the RiverSoftArt product),
+`Runtime/Support/<Name>.dsa` (the verbatim `queueDBMetaFile()` registration script), a 114×148
+product icon, plus a 91×91 grid icon and 250×250 tooltip image on the shipped `.dsa` asset itself.
+Dropped in DIM's Downloads folder, installed, then opened in Daz Studio's Smart Content pane:
+- The real icon image rendered in the file grid — no broken/warning-triangle placeholder, unlike
+  the bare Tier 1 package.
+- A **"Script" type badge** appeared on the tile, read directly from the declared `ContentType`.
+- The item was filed under a **"Utilities"** node in the left-hand category tree, matching the
+  declared `/Default/Utilities/Scripts` `Category` path exactly.
+- DIM's own product list/tooltip still matched `Supplement.dsx`'s `ProductName`/`ProductTags`
+  verbatim, same behavior as Tier 1.
+
+This confirms the full two-tier model end-to-end: Tier 1 alone is enough for DIM to install and
+for Smart Content to find the product by name (with a broken icon); adding the Tier 2 triple is
+what turns that into a real thumbnail with correct type/category filtering. Not yet tested by this
+process: a `ContentType`/`Category` pair for a non-script asset (e.g. `Preset/Shader/MDL` or
+`Follower/Wardrobe/*`), and a package that includes an actual `data/` geometry/morph payload
+alongside the ContentDBInstall metadata.
+
 ## Open questions for future SDK/IDA investigation
 
 - What other methods `DzAssetMgr` exposes beyond `queueDBMetaFile()` — worth a full method dump via
