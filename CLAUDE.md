@@ -11,6 +11,31 @@
 - **@SKILL_SCENE.md**: Scene layout, hierarchy, batch operations, and content browsing.
 - **@SKILL_ACTORS.md**: Morphs, emotions, posing, interaction, and character movement.
 - **@SKILL_CINEMA.md**: Cameras, lighting, animation, shot composition, and rendering.
+- **@SKILL_DAZ_STUDIO.md**: Institutional knowledge — coordinate/rotation conventions, portrait
+  camera math, bone rotation limits, lighting/rendering gotchas learned from live testing.
+- **@SKILL_STUDIO_CONCEPTS.md**: Data-model/UI reference digested from the official Daz Studio User
+  Guide — property/pane model, content type behavior, surfaces/materials channel model (legacy
+  3Delight vs Iray), camera/light property groups, 3-point rig ratios. Flags legacy-vs-current
+  (Iray) gaps as open questions for SDK/IDA follow-up.
+- **@SKILL_PACKAGING.md**: Product packaging/submission reference digested from official Daz 3D
+  Published Artist docs — file/folder structure (.dsf + data/ tree), Content DB Editor metadata,
+  Compatibility Base assignment, artwork specs, morph-export EULA compliance, and troubleshooting
+  recipes (JCM authoring, UV replacement, autogen-morph fixes, smoothing explosions).
+- **@SKILL_DSON_FORMAT.md**: Raw `.duf`/`.dsx`/`.dsa` file-format reference (gzip+JSON DSON),
+  reverse-engineered from six real shipped DIM store packages (shader/wardrobe/character/
+  environment/legacy-Poser/application) — full 110-channel DzUberIrayMaterial table, the DSON
+  channel-value addressing scheme presets use, morph delta + ERC/JCM formula wire format, both
+  figure/prop `data/` payload patterns, legacy Poser `.cr2`/`.pp2`/`.pz2`/`.lt2` structure, the
+  Application-installer Manifest shape, and a package-validation checklist.
+- **@SKILL_SDK_REFERENCE.md**: Confirmed DazScript class API pulled directly from the official SDK's
+  Doxygen docs — `DzAssetMgr` (Content DB metadata read/write, incl. `setFileMetadata()`),
+  `DzSimulationMgr`/`DzDForceEngine`/`DzDForceModifier`/`DzDForceSettingsProvider` (full dForce API),
+  `DzERCLink` vs. `DzFormula`/`DzFormulaController` (the real ERC/JCM mechanism), where Iray's real
+  render settings actually live (`DzIrayRenderer.getPropertyHolder()`/`DzRenderMgr.getOptionHelper()`
+  — `DzRenderOptions` itself is a confirmed dead end), `DzUberIrayMaterial`'s 452 named per-channel
+  accessors, `DzNumericProperty`/`DzFloatProperty` (joint-limit clamping nuance), `DzMorphDeltas`
+  (delta read/write + `calculateDeltas()`), and `DzContentReplaceMgr` (the scriptable Camera/Light
+  preset replace-mode mechanism).
 
 ## Architecture Summary
 - **Version:** 0.4.0

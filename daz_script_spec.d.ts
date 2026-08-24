@@ -10905,6 +10905,271 @@ declare class DzZipFile {
 }
 
 //
+// 2.5. SUPPLEMENTAL DECLARATIONS — hand-added 2026-08-11, NOT part of the original generated spec
+//
+// The classes above were generated from an SDK snapshot that predates dForce (Daz Studio 4.10+)
+// and never covered the Iray-specific material/render-settings classes at all. Cross-checked
+// against the Daz Studio 6.25+ BETA SDK's docs/DAZScript/ tree and, where marked "[live-verified]",
+// against a running Daz Studio 6.25.2026.14722 instance directly. See
+// mcp-servers/daz-mcp-server/SKILL_SDK_REFERENCE.md for full narrative detail, worked examples,
+// and open questions — this block is just the grep-able signatures.
+//
+// KNOWN GAP, DELIBERATELY NOT DECLARED HERE: DzFormula / DzFormulaController. The SDK C++ docs
+// describe these as a general-purpose RPN stack machine with a public default constructor
+// (DzFormula(), DzFormulaController()) and methods addOp/addOpPush/evaluate/addFormula. A live
+// test found `new DzFormula()` throws `TypeError: Type error` — in the actual running DazScript
+// engine, `typeof DzFormula` is `"object"`, not `"function"`; both classes are enum-only namespace
+// objects (DzFormula.OpMultiply etc., DzFormulaController.StageSum/StageProduct — note the live
+// enum names differ from the SDK docs' SecSum0/SecProduct0/SecProduct1) with NO constructor and NO
+// instance methods reachable from script. Do not add a `declare class DzFormula { ... }` here — it
+// would assert a usable API that does not exist. DzERCLink/DzERCFreeze (already declared above,
+// both confirmed `new`-constructible live) remain the only real script-usable ERC/JCM path.
+
+/** [live-verified] Simulation manager singleton, App.getSimulationMgr(). */
+declare class DzSimulationMgr {
+    clearSimulation(): DzError;
+    findSimulationEngine(className: string): DzSimulationEngine;
+    getActiveSimulationEngine(): DzSimulationEngine;
+    getNumSimulationEngines(): number;
+    getSimulationElementObjects(): any[];
+    getSimulationEngine(which: number): DzSimulationEngine;
+    getSimulationEngineList(): any[];
+    isSimulating(): boolean;
+    setActiveSimulationEngine(engine: DzSimulationEngine): void;
+    simulate(): DzError;
+
+    // SIGNALS
+    activeSimulationEngineChanged(engine: DzSimulationEngine): void;
+    simulationElementsListChanged(): void;
+    simulationEngineAdded(engine: DzSimulationEngine): void;
+    simulationError(errorMsg: string): void;
+    simulationFinished(succeeded: boolean): void;
+    simulationOptionDefaultsRestored(): void;
+    simulationStarting(): void;
+}
+
+/** Base class for simulation engines; DzDForceEngine is the sole concrete subclass. */
+declare class DzSimulationEngine {
+    clearSimulation(): DzError;
+    customSimulate(nodes: any[]): DzError;
+    getSimulationElements(list: any[]): any[];
+    simulate(): DzError;
+
+    // SIGNALS
+    aboutToSimulate(engine: DzSimulationEngine): void;
+    simulateFinished(engine: DzSimulationEngine): void;
+    simulationError(errorMsg: string): void;
+}
+
+/**
+ * [live-verified 2026-08-11] Implements the dForce simulation engine. GOTCHA: the SDK C++ docs
+ * mark addModifier/findDForceModifierOnNode/findDForceModifierOnObject/removeModifier/
+ * addSettingsProviders/removeSettingsProviders as `static`. Calling them on the bare
+ * `DzDForceEngine` class object throws `TypeError: ... is not a function` in live DazScript — they
+ * only exist on an actual engine INSTANCE, obtained via
+ * `App.getSimulationMgr().findSimulationEngine("DzDForceEngine")` or `getActiveSimulationEngine()`.
+ * Declared here as regular instance methods to match the live (not the documented-static) reality.
+ */
+declare class DzDForceEngine extends DzSimulationEngine {
+    addModifier(node: DzNode, objType: SimulationObjectType): DzError;
+    addSettingsProviders(node: DzNode, isSimItem?: boolean): DzError;
+    findDForceModifierOnNode(node: DzNode): DzDForceModifier;
+    findDForceModifierOnObject(obj: DzObject): DzDForceModifier;
+    removeModifier(node: DzNode): DzError;
+    removeSettingsProviders(node: DzNode): DzError;
+    isValidSimFacetMesh(fmesh: DzFacetMesh): boolean;
+
+    getDeviceInfo(): string;
+    getGlobalSimulationSettings(): any_obj;
+    getNumOpenCLDevices(): number;
+    getOpenCLDeviceLabel(which: number): string;
+    getPropertyHolder(): DzElement;
+    selectStartingCollided(): DzError;
+    simulate(nodes: any[], nodeSettings: any[], simulationSettings: any_obj): DzError;
+}
+type SimulationObjectType = any; // StaticSurface, DynamicSurface, DynamicSurfaceAddOn, Volume, VolumeAddOn, VolumeSurfaceAddOn
+
+/**
+ * Global dForce settings. Reached via `dforceEngine.getPropertyHolder()` — declared return type is
+ * DzElement, live object is this class (DazScript duck typing calls its methods directly). THE
+ * confirmed location of "Start Bones from Memorized Pose": getStartFromMemorizedPose()/
+ * setStartFromMemorizedPose(bool)/getStartFromMemorizedControl().
+ */
+declare class DzDForceEngineSettings extends DzElement {
+    getAirResistance(): number; setAirResistance(resistance: number): void; getAirResistanceControl(): DzFloatProperty;
+    getCollisionIterations(): number; setCollisionIterations(iterations: number): void; getCollisionIterationsControl(): DzIntProperty;
+    getCollisionMeshResolution(): CollisionResolution; setCollisionMeshResolution(resolution: CollisionResolution): void; getCollisionMeshResolutionControl(): DzEnumProperty;
+    getFramesPerSecondMultiplier(): number; setFramesPerSecondMultiplier(fpsMultiply: number): void; getFramesPerSecondMultiplierControl(): DzIntProperty;
+    getFramesToSimulate(): FramesToSimulate; setFramesToSimulate(frames: FramesToSimulate): void; getFramesToSimulateControl(): DzEnumProperty;
+    getGravity(): number; setGravity(gravity: number): void; getGravityControl(): DzFloatProperty;
+    getInitializationTime(): number; setInitializationTime(seconds: number): void; getInitializationTimeControl(): DzIntProperty;
+    getIterations(): number; setIterations(iterations: number): void; getIterationsControl(): DzIntProperty;
+    getPoseTransitionTime(): number; setPoseTransitionTime(seconds: number): void; getPoseTransitionTimeControl(): DzIntProperty;
+    getSendSubframeUpdates(): boolean; setSendSubframeUpdates(onOff: boolean): void; getSendSubframeUpdatesControl(): DzBoolProperty;
+    getSimulationRange(): any_obj; setSimulationRange(range: any_obj): void; getSimulationRangeControl(): any_obj;
+    getStabilizationTime(): number; setStabilizationTime(seconds: number): void; getStabilizationTimeControl(): DzIntProperty;
+    getStartFromMemorizedPose(): boolean; setStartFromMemorizedPose(onOff: boolean): void; getStartFromMemorizedControl(): DzBoolProperty;
+    getSubframes(): number; setSubframes(subframes: number): void; getSubframesControl(): DzIntProperty;
+    getVelocityLimit(): number; setVelocityLimit(limit: number): void; getVelocityLimitControl(): DzFloatProperty;
+    getVisualizeCellFrames(): any_obj; setVisualizeCellFrames(frames: any_obj): void; getVisualizeCellFramesControl(): any_obj;
+}
+type CollisionResolution = any; // BaseResolution, ViewportResolution
+type FramesToSimulate = any; // FsCurrentFrame, FsAnimatedPlayRange, FsAnimatedCustom
+
+/**
+ * [live-verified 2026-08-11] Object-level dForce modifier, subclass of DzModifier. Found via
+ * `dforceEngine.findDForceModifierOnNode(node)`. getFreezeSimulation()=true means the object is
+ * EXCLUDED from simulation (frozen/inert) — confirmed by live test (attach attempt on a non-mesh
+ * node correctly failed with a non-zero DzError and no modifier attached).
+ */
+declare class DzDForceModifier extends DzModifier {
+    clearSimulationData(): void;
+    getFreezeSimulation(): boolean; setFreezeSimulation(onOff: boolean): void; getFreezeSimulationControl(): DzBoolProperty;
+    getSimulationBaseShapeMode(): SimulationBaseShapeMode; setSimulationBaseShapeMode(mode: SimulationBaseShapeMode): void; getSimulationBaseShapeControl(): DzEnumProperty;
+    getSimulationObjectType(): SimulationObjectType; setSimulationObjectType(objType: SimulationObjectType): void; getSimulationObjectTypeControl(): DzEnumProperty;
+    getCellSize(): number; setCellSize(cellSize: number): void; getCellSizeControl(): DzFloatProperty;
+    getTargetVertexCount(): number; setTargetVertexCount(vertCount: number): void;
+    // one get/set/invalidate triad EACH for: BendStiffness, BucklingRatio, BucklingStiffness,
+    // Influence, MassDensity, ShearStiffness, StretchStiffness, SurfaceSmoothing, VelocitySmoothing
+    getBendStiffnessWeights(): DzWeightMap; setBendStiffnessWeights(map: DzWeightMap): DzError; invalidateBendStiffnessWeights(): void;
+
+    // SIGNALS
+    cellSizeChanged(): void;
+    freezeSimulationChanged(): void;
+    simulationBaseShapeChanged(): void;
+    simulationObjectTypeChanged(): void;
+    targetVertexCountChanged(): void;
+    weightMapsChanged(): void;
+    weightsChanged(): void;
+}
+type SimulationBaseShapeMode = any; // StartFrame, ZeroFrame, ShapeAtStartFrame, ShapeAtZeroFrame
+
+/**
+ * Container for per-surface (per-material) dForce settings. One instance attached per material via
+ * `dforceEngine.addSettingsProviders(node, isSimItem)`. Distinct element from DzDForceModifier
+ * (object-level) — "Visible In Simulation" here is a SURFACE property, not the same thing as any
+ * node-level property of the same/similar name.
+ */
+declare class DzDForceSettingsProvider extends DzElement {
+    getShape(): DzShape;
+    modifyAsset(): boolean;
+    modifyAsset(newUri: DzUri): boolean;
+
+    getBendDamping(): number; setBendDamping(v: number): void; getBendDampingControl(): DzFloatProperty;
+    getBendStiffness(): number; setBendStiffness(v: number): void; getBendStiffnessControl(): DzFloatProperty;
+    getBucklingRatio(): number; setBucklingRatio(v: number): void; getBucklingRatioControl(): DzFloatProperty;
+    getBucklingStiffness(): number; setBucklingStiffness(v: number): void; getBucklingStiffnessControl(): DzFloatProperty;
+    getCollide(): boolean; setCollide(onOff: boolean): void;
+    getCollisionLayer(): number; setCollisionLayer(layer: number): void;
+    getCollisionOffset(): number; setCollisionOffset(offset: number): void;
+    getCollisionResponseDamping(): number; setCollisionResponseDamping(v: number): void;
+    getCompressionResistance(): number; setCompressionResistance(v: number): void;
+    getContractionExpansionRatio(): number; setContractionExpansionRatio(v: number): void; getContractionExpansionRatioControl(): DzFloatProperty;
+    getDamping(): number; setDamping(v: number): void; getDampingControl(): DzFloatProperty;
+    getDensity(): number; setDensity(gsm: number): void; getDensityControl(): DzFloatProperty;
+    getDynamicsStrength(): number; setDynamicsStrength(strength: number): void; getDynamicsStrengthControl(): DzFloatProperty;
+    getFriction(): number; setFriction(v: number): void; getFrictionControl(): DzFloatProperty;
+    getSelfCollide(): boolean; setSelfCollide(onOff: boolean): void;
+    getShearDamping(): number; setShearDamping(v: number): void; getShearDampingControl(): DzFloatProperty;
+    getShearStiffness(): number; setShearStiffness(v: number): void; getShearStiffnessControl(): DzFloatProperty;
+    getStretchDamping(): number; setStretchDamping(v: number): void; getStretchDampingControl(): DzFloatProperty;
+    getStretchStiffness(): number; setStretchStiffness(v: number): void; getStretchStiffnessControl(): DzFloatProperty;
+    getSurfaceSmoothing(): number; setSurfaceSmoothing(weight: number): void;
+    getSurfaceSmoothingIterations(): number; setSurfaceSmoothingIterations(v: number): void;
+    getVelocitySmoothing(): number; setVelocitySmoothing(weight: number): void;
+    getVelocitySmoothingIterations(): number; setVelocitySmoothingIterations(v: number): void;
+    getVisibleInSimulation(): boolean; setVisibleInSimulation(onOff: boolean): void; getVisibleInSimulationControl(): DzBoolProperty;
+}
+
+/**
+ * [live-verified 2026-08-11] THE answer to "where do Iray's real render settings live" — confirmed
+ * by direct property enumeration against a running instance, exact match to a decompiled scene
+ * file's "NVIDIA Iray Render Options" group. Reached via:
+ *   App.getRenderMgr().findRenderer("DzIrayRenderer").getPropertyHolder()
+ * NOTE: despite the confusingly similar name, this is a DIFFERENT concept from the material class
+ * below (DzUberIrayMaterial) — no inheritance relationship between them. Also NOT the same as
+ * canvas/AOV definitions, which this class's OWN declared C++ methods (not shown here — see
+ * SKILL_SDK_REFERENCE.md) separately handle; the render-settings channels below are a
+ * RUNTIME-ATTACHED generic property list (DzElement.getProperty(i)/getNumProperties()), not
+ * compile-time C++ methods, which is why the official Doxygen docs don't show them at all — you
+ * can only find them by probing a live instance. Confirmed labels (26), reachable via
+ * `holder.getProperty(i).getLabel()` / `holder.findProperty(label)`:
+ * Render Mode, Min Samples, Max Samples, Max Time (secs), Rendering Quality Enable, Rendering
+ * Quality SSIM, Rendering Quality, Rendering Converged Ratio, Progressive Aux Canvas, Post SSIM
+ * Available, Post SSIM Enable, Post SSIM Predict Target, Post SSIM Max Memory, Pixel Filter, Pixel
+ * Filter Radius, Post Denoiser Available, Post Denoiser Enable, Post Denoiser Start Iteration, Post
+ * Denoiser Max Memory, Post Denoiser Denoise Alpha, White Mode Enable, White Mode Color, White Mode
+ * Albedo Canvas Color, Section Caps Enabled, Section Caps Color, Active Canvas.
+ */
+declare class DzIrayPropertyHolder extends DzElement {
+    getNumElementChildren(): number;
+    getElementChild(i: number): DzElement;   // index 0 = DzIrayPhotorealHelper, index 1 = DzIrayInteractiveHelper (confirmed live)
+}
+
+/**
+ * [live-verified] holder.getElementChild(0) off DzIrayPropertyHolder. 26 confirmed properties:
+ * Min Update Samples, Update Interval (secs), Default Alpha LPE, Custom Alpha LPE, Max Path Length,
+ * Max SSS Path Length, Caustic Sampler, Guided Sampling, Instancing Optimization, Ray Tracing Low
+ * Memory, Texture Compression, Texture Compression Medium Threshold, Texture Compression High
+ * Threshold, Firefly Filter Enable, Nominal Luminance, Noise Degrain Filtering, Noise Degrain
+ * Radius, Noise Degrain Blur Difference, Bloom Filter Enable, Bloom Filter Radius, Bloom Filter
+ * Threshold, Bloom Filter Brightness Scale, Spectral Rendering Enable, Spectral Conversion Color
+ * Space, Spectral Conversion Intent, Spectral Observer.
+ */
+declare class DzIrayPhotorealHelper extends DzElement {}
+
+/**
+ * [live-verified] holder.getElementChild(1) off DzIrayPropertyHolder. 23 confirmed properties:
+ * Occlusion Mode, Ambient Intensity, Ambient Falloff Min Distance, Ambient Falloff Max Distance,
+ * Ambient Falloff, Ambient Falloff Distance Space, Indirect Light Mode, Indirect Outlier Rejection,
+ * Ambient Shadow Mode, Shadows, IBL Falloff, Refinement Mode, Max Ray Bounces, Max Reflection
+ * Bounces, Max Refraction Bounces, Ray Importance Threshold, First Frame Antialiasing, Area As
+ * Point Lights, Environment Max Resolution, Path Space Filtering (PSF), PSF Geometry Filter, PSF
+ * Lighting Filter, PSF Convergence Frame.
+ */
+declare class DzIrayInteractiveHelper extends DzElement {}
+
+/**
+ * [live-verified 2026-08-11] Reached via App.getRenderMgr().getOptionHelper() — a DIFFERENT,
+ * complementary group from DzIrayPropertyHolder above (confirmed: 16 properties, general
+ * output/dimension settings, not Iray-quality settings). Own declared methods: getHeadlampAutoMode
+ * /setHeadlampAutoMode(mode). Confirmed runtime property labels (16): Dimension Preset (Global),
+ * Pixel Size (Global), Aspect Ratio (Global), Constrain Proportions (Global), Render Type, Render
+ * Target, Render Range, Image Name, Image Path, Movie Name, Movie Path, Series Base, Series Path,
+ * Auto Headlamp, Post Process Script, Render Style.
+ */
+declare class DzRenderOptionsHelper extends DzElement {
+    getHeadlampAutoMode(): AutoHeadlampMode;
+    setHeadlampAutoMode(mode: AutoHeadlampMode): void;
+}
+type AutoHeadlampMode = any;
+
+/**
+ * [live-verified 2026-08-11] "Iray Uber" MDL-based PBR material, provided by the NVIDIA Iray
+ * Renderer plugin (since 4.8.0.55). Subclass of DzMaterial. CONFIRMED LIVE: `new
+ * DzUberIrayMaterial()` constructs successfully (unlike DzFormula above), and getDiffuseWeight()/
+ * setDiffuseWeight()/getDiffuseWeight() round-trips correctly (1 -> 0.42 -> 0.4199999...).
+ * The full class has ~452 methods, a strict 5-method-per-channel pattern
+ * (get<Channel>/get<Channel>Control/get<Channel>Map/set<Channel>/set<Channel>Map) repeated for
+ * every channel in the 110-channel table documented in SKILL_DSON_FORMAT.md. Only a representative
+ * sample is declared below — grep SKILL_DSON_FORMAT.md's channel table for the full list of ~100
+ * channel names and reconstruct the same 5-method pattern for any channel not shown here
+ * (e.g. a channel called "Top Coat Weight" → getTopCoatWeight()/getTopCoatWeightControl()/
+ * getTopCoatWeightMap()/setTopCoatWeight()/setTopCoatWeightMap()).
+ */
+declare class DzUberIrayMaterial extends DzMaterial {
+    getDiffuseWeight(): number; getDiffuseWeightControl(): DzFloatProperty; getDiffuseWeightMap(): DzTexture; setDiffuseWeight(v: number): void; setDiffuseWeightMap(path: string): void;
+    getGlossyRoughness(): number; getGlossyRoughnessControl(): DzFloatProperty; getGlossyRoughnessMap(): DzTexture; setGlossyRoughness(v: number): void;
+    getTopCoatWeight(): number; getTopCoatWeightControl(): DzFloatProperty; getTopCoatWeightMap(): DzTexture; setTopCoatWeight(v: number): void;
+    getSSSAmount(): number; getSSSAmountControl(): DzFloatProperty; setSSSAmount(v: number): void;
+    getEmissionColor(): DzFloatColor; getEmissionColorMap(): DzTexture; setEmissionColor(c: DzFloatColor): void;
+    getBaseColorEffect(): any;
+    getAbbe(): number; getAbbeControl(): DzFloatProperty;
+    // ... ~440 more methods following the same get/getControl/getMap/set/setMap pattern —
+    // see SKILL_DSON_FORMAT.md's 110-channel table for the complete list of channel names.
+}
+
+//
 // 3. GLOBAL VARIABLES (Crucial!)
 // THESE MUST REMAIN AT THE TOP OR BOTTOM OF THIS FILE!
 //
