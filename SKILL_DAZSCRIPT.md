@@ -169,6 +169,71 @@ prop.getMapValue().getFilename();         // read back the path
 // need one; probe with `typeof prop.setMap === 'function'` if unsure on a given class.
 ```
 
+### Enum properties — `setValue()` needs the integer index, not the string label
+```javascript
+var prop = mat.findProperty("SSS Mode");   // enum_values: ["Mono", "Chromatic"]
+prop.setValue(1);        // works — index into enum_values, now "Chromatic"
+prop.setValue("Chromatic");  // silently ignored — value stays unchanged, no error thrown
+```
+Confirmed live on both `SSS Mode` and `Base Color Effect` (both `DzEnumProperty`-family). Always
+pass the integer index; there's no live-confirmed string-label form that works.
+
+### Bool properties (`DzBoolProperty`) — same `setValue()` as everything else
+```javascript
+var prop = mat.findProperty("Thin Walled");   // className() === "DzBoolProperty"
+prop.setValue(false);   // works
+prop.setValue(0);        // also works, identical result
+prop.getValue();          // returns 0 or 1 (not a JS boolean)
+```
+No special setter needed — confirmed live, `setValue()` is the uniform entry point across
+bool/numeric/enum/color properties (color still needs `setFloatColorValue`, see above).
+
+### Content-relative paths (`"/Runtime/..."`) don't resolve outside DSON scene-loading
+A leading-slash, content-root-relative path like `"/Runtime/Support/Foo/Bar.duf"` is what DSON's
+own `image_file` references use internally (resolved against every registered Content Directory
+when Daz loads/merges a scene) — but that resolution is NOT available to general scripting calls:
+```javascript
+new DzFile("/Runtime/Support/Foo/Bar.duf").exists();          // false, even if the file is
+                                                                 // genuinely present under a real
+                                                                 // registered Content Directory
+App.getContentMgr().openFile("/Runtime/Support/Foo/Bar.duf", new DzFileIOSettings(), false);
+                                                                 // fails outright for the same reason
+```
+`DzFile`/`DzContentMgr.openFile()`/`DzMaterial.setMap()` all need either a full absolute OS path, or
+a real Content-Database asset ID (the `%20`-escaped store-catalog form, e.g.
+`/Shader%20Presets/Iray/DAZ%20Uber/%21Iray%20Uber%20Base.duf` — only resolvable if that asset is
+actually registered in the Content Database, i.e. a Tier 2/Smart-Content-registered item). If a
+script needs to reference a sibling file relative to its own on-disk location (e.g. a bundled
+asset shipped alongside the script, whose eventual install location is unknown ahead of time),
+resolve it at runtime instead of hardcoding either path style:
+```javascript
+var dir = new DzDir(new DzFile(getScriptFileName()).path());
+dir.cdUp();  // repeat per directory level separating the script from the target's common ancestor
+var absPath = dir.filePath("Runtime/Support/Foo/Bar.duf");   // real absolute path, works with openFile()
+```
+
+### Faithfully executing a script FILE — `DzScript.loadFromFile()`+`execute()`
+If you need to test how a script behaves when Daz genuinely runs it as a file (as opposed to
+evaluating its source text) — in particular, whether `getScriptFileName()` returns the real path —
+`new DzScript(); s.loadFromFile(path); s.execute();` is the faithful mechanism:
+```javascript
+var s = new DzScript();
+if (s.loadFromFile("C:/path/to/script.dsa")) { s.execute(); }
+```
+This MCP server's own `daz_execute_file` tool does NOT do this — it reads the file's text and
+evaluates it inline (same code path as `daz_execute`), so `getScriptFileName()` comes back an empty
+string inside a script run that way, even though the tool is named/described as running a file.
+This produced a genuine red-herring failure while debugging a script that computed a path relative
+to its own `getScriptFileName()` (a content-relative-path resolution — see above): the same script,
+run via `daz_execute_file`, resolved to nonsense (a fallback base directory), while `DzScript.
+loadFromFile()+execute()` against the identical on-disk file resolved correctly. If a script's
+correctness depends on its own file location, verify it with `DzScript.loadFromFile()+execute()`,
+not `daz_execute_file`, since only the former matches what a real double-click/Content-Library
+invocation actually does. `s.execute()`'s own return value is just a success boolean, not the
+script's result — if you need output back, have the script `print()` and read `output`, or have it
+write results to a file on disk and read that back separately (`print()` inside a nested `DzScript`
+run this way is also NOT captured into `daz_execute`'s own `output` array — confirmed live).
+
 ### Probing unknown objects
 When a method name is uncertain, enumerate at runtime before writing the script:
 ```javascript
