@@ -343,6 +343,26 @@ async def test_daz_load_file_not_found(mock_scene):
         await daz_load_file("C:/missing.duf")
 
 
+async def test_daz_load_file_replace_mode_add_sends_flag(mock_daz):
+    """replace_mode='add' must route through the registered script (not dazpy's
+    direct load) and carry replaceMode='add' in the args payload, since that's
+    what the script uses to engage DzContentReplaceMgr's NeverReplace mode."""
+    captured = {}
+
+    def capture(request):
+        import json as _json
+        captured.update(_json.loads(request.content))
+        return _ok({"success": True, "file": "C:/scenes/lights.duf", "replaceMode": "add"})
+
+    mock_daz.post("/scripts/vangard-load-file/execute").mock(side_effect=capture)
+    result = await daz_load_file("C:/scenes/lights.duf", merge=True, replace_mode="add")
+    assert result["success"] is True
+    assert result["replaceMode"] == "add"
+    assert captured["args"]["replaceMode"] == "add"
+    assert captured["args"]["merge"] is True
+    assert captured["args"]["filePath"] == "C:/scenes/lights.duf"
+
+
 # ---------------------------------------------------------------------------
 # Phase 1.5: Async operations — helpers
 # ---------------------------------------------------------------------------

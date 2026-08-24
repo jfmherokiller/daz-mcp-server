@@ -511,3 +511,64 @@ async def daz_direct_gaze(
         "targetLabel": target_label or "",
     })
     return result
+
+
+@mcp.tool()
+async def daz_generate_morph_from_nodes(
+    source_node_label: str,
+    target_node_label: str,
+    tolerance: float = 0.001,
+    max_deltas: int = 5000,
+) -> dict[str, Any]:
+    """Calculate morph deltas between two matching-topology scene nodes.
+
+    A scriptable alternative to the fully-manual "export both meshes, sculpt
+    externally, reimport via Morph Loader Pro" workflow (SKILL_PACKAGING.md's
+    JCM troubleshooting recipe). Both nodes must already be loaded in the
+    scene with identical vertex topology — e.g. the original base figure and
+    an externally-sculpted correction re-imported as an OBJ prop via
+    daz_load_file. This does NOT load an external mesh file directly; both
+    sides must already be scene nodes.
+
+    Args:
+        source_node_label: Display label of the "base" node (undeformed).
+        target_node_label: Display label of the "morph" node (deformed/sculpted).
+        tolerance: Minimum per-vertex displacement to record as a delta
+                   (default 0.001, Daz Studio's own default).
+        max_deltas: Cap on how many deltas to return in the response (default
+                    5000) — dense morphs can have tens of thousands; raise this
+                    if you need the full set. `truncated` in the result tells
+                    you if the cap was hit.
+
+    Returns:
+        Dict with sourceNode, targetNode, tolerance, deltaCount (the real
+        total), truncated (bool), returnedCount, and deltas (list of
+        {vertex, dx, dy, dz}).
+
+    Notes:
+        - This returns RAW delta data for inspection/export only. Turning the
+          result into an installable morph property on the source figure
+          (Create New Property + ERC Freeze) is still a separate, manual
+          Daz Studio step — no confirmed scriptable path exists for that half.
+        - Live-verified against a real Genesis 9 figure (duplicated via
+          node.duplicate(false) with a differing body-shape morph): correctly
+          returned one delta per vertex (25182/25182) with real per-vertex
+          offsets.
+        - Passing the SAME node label for both source and target raises
+          ToolError rather than returning a zero-delta result — Daz Studio's
+          own calculateDeltas() returns no usable result for that literal
+          same-object case (confirmed live). Compare genuinely distinct nodes.
+    """
+    if tolerance < 0:
+        raise ToolError(f"tolerance must be non-negative, got {tolerance}")
+    if max_deltas < 0:
+        raise ToolError(f"max_deltas must be non-negative, got {max_deltas}")
+    return await _execute_by_id(
+        "vangard-generate-morph-from-nodes",
+        {
+            "sourceNodeLabel": source_node_label,
+            "targetNodeLabel": target_node_label,
+            "tolerance": tolerance,
+            "maxDeltas": max_deltas,
+        },
+    )

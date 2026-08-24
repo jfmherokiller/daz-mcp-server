@@ -7,6 +7,7 @@ Tools covered
 - daz_get_content_info     (local JSON parsing — no DAZ needed)
 - daz_export_node_config
 - daz_import_node_config
+- daz_set_content_metadata (slow — mutates the real Content Database)
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from vangard_daz_mcp.tools.content import (
     daz_browse_category,
     daz_get_content_info,
     daz_list_categories,
+    daz_set_content_metadata,
 )
 
 
@@ -139,4 +141,50 @@ class TestExportImportNodeConfig:
         with pytest.raises((ToolError, FileNotFoundError, Exception)):
             await daz_import_node_config(
                 str(tmp_path / "nonexistent_config.json").replace("\\", "/")
+            )
+
+
+# ---------------------------------------------------------------------------
+# daz_set_content_metadata
+#
+# Marked slow: DzAssetMgr.setFileMetadata() writes a permanent row into the
+# real, connected Daz Studio's Content Database — there is no dry-run mode
+# and no cleanup call exists to undo it. Excluded from the default run;
+# opt in with `-m slow` only against a disposable/test Daz Studio content
+# library, never a production one.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.slow
+@pytest.mark.integration
+class TestSetContentMetadata:
+    async def test_generic_shader_metadata(self, live_client):
+        result = await daz_set_content_metadata(
+            file_path="/Shader Presets/VangardTest/vangard_mcp_test_marker.duf",
+            content_type="Preset/Shader/MDL",
+            compatible_with="/AnySurface",
+            category="/Default/Shaders/Iray/Utilities",
+        )
+        assert isinstance(result, dict)
+        assert result.get("success") is True
+        assert result.get("method") in {"static", "instance"}
+
+    async def test_with_compatibility_base(self, live_client):
+        result = await daz_set_content_metadata(
+            file_path="/People/Genesis 9/Clothing/VangardTest/vangard_mcp_test_item.duf",
+            content_type="Follower/Wardrobe/Shirt",
+            compatible_with="/Genesis 9/Base",
+            category="/Default/Wardrobe/Shirts",
+            compatibility_base="VangardMcpTest/TestItem",
+        )
+        assert isinstance(result, dict)
+        assert result.get("success") is True
+        assert result.get("compatibilityBase") == "VangardMcpTest/TestItem"
+
+    async def test_missing_required_field_raises(self, live_client):
+        with pytest.raises(ToolError):
+            await daz_set_content_metadata(
+                file_path="",
+                content_type="Preset/Shader/MDL",
+                compatible_with="/AnySurface",
+                category="/Default/Shaders/Iray/Utilities",
             )

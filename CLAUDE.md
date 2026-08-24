@@ -15,7 +15,7 @@
 ## Architecture Summary
 - **Version:** 0.4.0
 - **Bridge:** Connects to DazScriptServer (port 18811)
-- **Registry:** 141 tools registered across 13 tool modules.
+- **Registry:** 143 tools registered across 13 tool modules.
 - **Structure:** Modular — `_mcp.py` holds shared FastMCP instance; `tools/__init__.py` imports all 13 modules so `@mcp.tool()` decorators fire at import time.
 - **Phase 4.8:** Lighting Animation — `daz_animate_light`, `daz_create_light_sequence`
 - **Phase 4.9:** Shot Planning — `daz_plan_shot`, `daz_create_storyboard`
@@ -41,6 +41,18 @@
   `daz_set_dforce_property`'s modifier lookup now tries the exact
   `DzDForceEngine` instance method (`findDForceModifierOnNode`) before falling back to fuzzy
   class-name matching.
+- **Phase 6.9:** Newly-confirmed-SDK-API coverage, all three now live-verified end-to-end —
+  `daz_load_file` gained an optional `replace_mode="add"` (uses `DzContentReplaceMgr` so a
+  Camera(s)/Light(s) Preset load doesn't silently wipe existing cameras/lights — confirmed
+  existing cameras/lights survive a merge); new `daz_set_content_metadata` (wraps
+  `DzAssetMgr.setFileMetadata()` — scripts the Content DB Editor's Content
+  Type/Compatibility/Category assignment; confirmed the SDK-documented `static` call genuinely
+  fails and only `App.getAssetMgr().setFileMetadata()` works); new `daz_generate_morph_from_nodes`
+  (wraps `DzMorphDeltas.calculateDeltas()` — computes morph deltas between two matching-topology
+  scene nodes; needed two live corrections beyond the initial write: `calculateDeltas()` is an
+  instance method, not static, AND the result is its *return value*, not the calling instance —
+  confirmed against a real Genesis 9 figure, one delta per vertex with correct offsets). See
+  `SKILL_SDK_REFERENCE.md` for full details of each correction.
 
 ## Render API (DazScriptServer native endpoints)
 `daz_render_async`, `daz_render_with_camera_async`, `daz_batch_render_cameras_async` use

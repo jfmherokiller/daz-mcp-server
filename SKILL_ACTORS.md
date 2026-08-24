@@ -5,6 +5,15 @@ Tools for morphs, emotions, and movement.
 - `daz_list_morphs`: Use `include_zero=False` to see active morphs.
 - `daz_search_morphs`: Pattern match (e.g., "smile", "muscle").
 - `daz_set_morph`: Set a single morph by name and value.
+- `daz_generate_morph_from_nodes`: Calculate morph deltas between two matching-topology scene
+  nodes via `DzMorphDeltas.calculateDeltas()` — a scriptable alternative to the fully-manual
+  "export, sculpt externally, Morph Loader Pro" JCM workflow in SKILL_PACKAGING.md. Both nodes
+  must already be loaded in the scene (no direct external-mesh-file loading). Returns raw delta
+  data only — turning it into an installable morph property is still a manual step. Live-verified
+  against a real Genesis 9 figure (one delta per vertex, correct offsets) — see
+  SKILL_SDK_REFERENCE.md for the two SDK-doc corrections this needed (instance method, not
+  static; read the return value, not the calling instance). Comparing a node to itself by the
+  same label raises an error rather than returning zero deltas — use two distinct nodes.
 
 ## Emotional Direction
 - `daz_set_emotion`: Apply `happy`, `angry`, `confident`, etc., with `intensity`.
@@ -24,6 +33,11 @@ Tools for morphs, emotions, and movement.
 - `daz_fit_clothing` / `daz_unfit_item`: Attach or detach clothing.
 - `daz_run_dforce_simulation`: Run cloth physics simulation.
 - `daz_bake_simulation`: Bake sim results; `daz_set_dforce_property` to tune parameters.
+  - `daz_set_dforce_property` currently only reaches OBJECT-level dForce settings
+    (`DzDForceModifier` — e.g. Freeze Simulation). Per-SURFACE settings (Self Collide, Collision
+    Layer, Density, Stiffness/Damping — `DzDForceSettingsProvider`, one per material) are not yet
+    reachable through it — the retrieval API for an existing provider is still an open question,
+    see SKILL_SDK_REFERENCE.md's open-questions list.
 - `daz_get_figure_info`, `daz_set_subdivision`: Diagnostics and mesh LOD.
 - `daz_export_fbx`, `daz_export_obj`: Export figure/scene to interchange formats.
 

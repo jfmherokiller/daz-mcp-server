@@ -48,6 +48,7 @@ async def daz_scene_info() -> dict[str, Any]:
 async def daz_load_file(
     file_path: str,
     merge: bool = True,
+    replace_mode: str | None = None,
 ) -> dict[str, Any]:
     """Load a DAZ Studio file into the current scene.
 
@@ -56,21 +57,43 @@ async def daz_load_file(
                    (.duf, .daz, .obj, .fbx, etc.).
         merge: If True (default), merge the file into the existing scene.
                If False, replace the current scene entirely.
+        replace_mode: Optional. Pass "add" to force DzContentReplaceMgr into
+                      NeverReplace before loading and restore it afterward.
+                      Use this when loading a Camera(s) or Light(s) Preset that
+                      you want ADDED alongside existing cameras/lights — by
+                      default, that specific content type silently replaces
+                      ALL existing cameras/lights in the scene regardless of
+                      the merge flag (a real Daz Studio content-type behavior,
+                      not a bug in this tool). Leave unset for normal loads.
 
     Returns:
       - success: true on success
       - file: the path that was loaded
+      - replaceMode: "add" or "default", echoing what was applied
+      - warning: present if replace_mode="add" was requested but
+                 DzContentReplaceMgr wasn't reachable on this Daz Studio
+                 version — the load still proceeded without that protection
+
+    Notes:
+        - Live-verified: merging a scene copy with replace_mode="add" into a
+          scene with existing cameras/lights left all of them intact (counts
+          doubled from the merge rather than staying flat), and the prior
+          replace mode was correctly restored afterward.
     """
-    if merge:
+    if merge and replace_mode is None:
         try:
             await run_dazpy(lambda: get_scene().load(file_path))
-            return {"success": True, "file": file_path}
+            return {"success": True, "file": file_path, "replaceMode": "default"}
         except ToolError:
             raise
         except Exception as e:
             handle_dazpy_error(e)
-    # merge=False: replace mode — fall back to the registered DazScript
-    return await _execute_by_id("vangard-load-file", {"filePath": file_path, "merge": False})
+    # merge=False, or replace_mode="add": needs DzContentReplaceMgr / explicit
+    # replace control — fall back to the registered DazScript
+    return await _execute_by_id(
+        "vangard-load-file",
+        {"filePath": file_path, "merge": merge, "replaceMode": replace_mode},
+    )
 
 
 @mcp.tool()
